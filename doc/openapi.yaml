@@ -1,0 +1,1038 @@
+openapi: 3.0.3
+info:
+  title: WASAText API
+  version: "2.0"
+  description: API specification for the WASAText messaging platform.
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+    
+paths: 
+  /session:
+    post:
+      tags: ["login"]
+      summary: Logs in the user
+      description: >
+        If the user does not exist, it will be created,
+        and an identifier is returned.
+        If the user exists, the user identifier is
+        returned.
+      operationId: doLogin
+      requestBody:
+        description: User details
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: Maria
+                  pattern: 'ˆ.*?$'
+                  minLength: 3
+                  maxLength: 16
+        required: true
+      responses:
+        "201":
+          description: User log-in action successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  identifier:
+                    type: string
+                    example: "abcdef012345"
+                    
+  /user:
+    put:
+      tags: ["user"]
+      summary: Set or update username
+      description: Allows logged-in user to set or update their username. The new username must be unique.
+      operationId: setMyUserName
+      security:
+        - UserIdentifierAuth: []
+      requestBody:
+        description: New username details
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                newName:
+                  type: string
+                  example: John3
+                  pattern: '^[a-zA-Z0-9_]+$'
+                  minLength: 3
+                  maxLength: 16
+              required:
+                - newName
+      responses:
+        "200": 
+          description: Username set
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+  /user/{userId}:
+    put:
+      tags: ["user"]
+      summary: Update profile photo of a user
+      description: |-
+        Allows a user to update their profile photo.
+      operationId: setMyPhoto
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: Unique identifier of the user whose profile photo is being updated
+          schema:
+            type: string
+            example: "user1"
+      requestBody:
+        description: The new photo URL for the user
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                photoUrl:
+                  type: string
+                  format: uri
+                  description: The URL of the new profile photo
+                  example: "https://example.com/photos/user1.jpg"
+              required:
+                - photoUrl
+      responses:
+        "200":
+          description: Profile photo updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId:
+                    type: string
+                    description: Unique identifier of the user
+                    example: "user1"
+                  oldPhotoUrl:
+                    type: string
+                    description: The previous profile photo URL
+                    example: "https://example.com/photos/old-user-photo.jpg"
+                  newPhotoUrl:
+                    type: string
+                    description: The updated profile photo URL
+                    example: "https://example.com/photos/user1.jpg"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+  
+  /users:
+    get:
+      tags: ["users"]
+      summary: Search for users
+      description: |-
+        Allows a user to search for other users by username. Returns a list of matching usernames.
+      operationId: searchUsers
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: query
+          in: query
+          required: false
+          description: Partial or full username to search for
+          schema:
+            type: string
+            example: "Pat"
+      responses:
+        "200":
+          description: List of matching users retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    username:
+                      type: string
+                      description: Username of the user
+                      example: "Patric"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+      
+  /conversations:
+    get:
+      tags: ["conversations"]
+      summary: Retrieve user conversations
+      description: >
+        Fetches all conversations for the logged-in user. Conversations are sorted in reverse chronological order, including details such as the username or group name, profile/group photo, the date and time of the lastest message, and a preview of the latest message (text or icon for photo message).
+      operationId: getMyConversations
+      security:
+        - UserIdentifierAuth: []
+      responses:
+        "200":
+          description: List of conversations retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    conversationId:
+                      type: string
+                      example: "chat207"
+                    title:
+                      type: string
+                      description: Username or group name
+                      example: "Lisa"
+                    profilePhoto:
+                      type: string
+                      description: URL to the profile or group photo
+                      example: "https://example.com/photos/profile.jpg"
+                    isGroup:
+                      type: boolean
+                      description: Indicates if the conversation is a group
+                      example: false
+                    lastMessage:
+                      type: object
+                      description: Details about the last message
+                      properties:
+                        type:
+                          type: string
+                          enum: [text, photo]
+                          description: Type of the last message
+                          example: "photo"
+                        content:
+                          type: string
+                          description: |-
+                            Text preview of the last message (if `type` is `text`) or
+                            an icon (if `type` is `photo`).
+                          example: "photo"
+                        icon:
+                          type: string
+                          description: |-
+                            URL to an icon preview for a photo message (if applicable).
+                          example: "https://example.com/icons/photo-icon.png"
+                    updatedAt:
+                      type: string
+                      format: date-time
+                      description: Date and time of the last message
+                      example: "2025-01-11T14:30:00Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: ["conversations"]
+      summary: Start a new conversation
+      description: |-
+        Allows a user to start a new conversation with another user. If a conversation already exists
+        between the two users, the existing conversation is returned.
+      operationId: startConversation
+      security:
+        - UserIdentifierAuth: []
+      requestBody:
+        description: Details for the new conversation
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                recipient:
+                  type: string
+                  description: Username of the recipient
+                  example: "Tara"
+              required:
+                - recipient
+      responses:
+        "201":
+          description: Conversation started successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                    description: Unique identifier of the created conversation
+                    example: "chat35"
+                  recipient:
+                    type: string
+                    description: Username of the recipient
+                    example: "Tara"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /conversations/{conversationId}:
+    get:
+      tags: ["conversations"]
+      summary: Retrieve details and messages of a specific conversation
+      description: |-
+        Fetches all messages in a specific conversation for the logged-in user. Messages are displayed in reverse chronological order and include the timestamp, content, sender's username, and status (received/read for sent messages). Reactions to messages are also included.
+      operationId: getConversation
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          description: The unique identifier of the conversation
+          schema:
+            type: string
+            example: "chat207"
+      responses:
+        "200":
+          description: Conversation details and messages retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                    description: Unique identifier of the conversation
+                    example: "chat207"
+                  title:
+                    type: string
+                    description: Username or group name
+                    example: "Birthday party"
+                  isGroup:
+                    type: boolean
+                    description: Indicates if the conversation is a group
+                    example: true
+                  participants:
+                    type: array
+                    description: List of usernames participating in the conversation
+                    items:
+                      type: string
+                    example: ["Duke", "John"]
+                  messages:
+                    type: array
+                    description: List of messages in the conversation
+                    items:
+                      type: object
+                      properties:
+                        messageId:
+                          type: string
+                          description: Unique identifier of the message
+                          example: "msg67890"
+                        sender:
+                          type: string
+                          description: Username of the sender
+                          example: "Duke"
+                        messageType:
+                          type: string
+                          enum: [text, photo]
+                          description: Type of the message
+                          example: "photo"
+                        content:
+                          type: string
+                          description: |-
+                            Content of the message:
+                            - For `text`, this is the actual message text.
+                            - For `photo`, this is an icon or a URL pointing to the photo.
+                          example: "https://example.com/photos/message123.jpg"
+                        timestamp:
+                          type: string
+                          format: date-time
+                          description: Date and time when the message was sent
+                          example: "2025-01-11T14:30:00Z"
+                        status:
+                          type: string
+                          enum: [received, read]
+                          description: Status of the message for the sender
+                          example: "read"
+                        reactions:
+                          type: array
+                          description: Reactions to the message
+                          items:
+                            type: object
+                            properties:
+                              username:
+                                type: string
+                                description: Username of the user who reacted
+                                example: "John"
+                              reaction:
+                                type: string
+                                description: Reaction emoji or text
+                                example: "👍"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+
+  /conversations/{conversationId}/messages:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        description: Unique identifier of the conversation
+        schema:
+          type: string
+    post:
+      tags: ["messages"]
+      summary: Send a message
+      description: Allows a user to send a new message in a specific conversation.
+      operationId: sendMessage
+      security:
+        - UserIdentifierAuth: []
+      requestBody:
+        description: Details of the message to be sent
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                messageType:
+                  type: string
+                  enum: [text, photo]
+                  description: Type of the message (text or photo)
+                  example: "text"
+                content:
+                  type: string
+                  description: The content of the message (text or photo URL)
+                  example: "hi"
+              required:
+                - content
+                - messageType
+      responses:
+        "201":
+          description: Message sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messageId:
+                    type: string
+                    description: Unique identifier of the newly sent message
+                    example: "msg67890"
+                  conversationId:
+                    type: string
+                    description: Unique identifier of the conversation
+                    example: "chat40"
+                  sender:
+                    type: string
+                    description: Username of the sender
+                    example: "Karen"
+                  content:
+                    type: string
+                    description: |-
+                            Content of the message:
+                            - For `text`, this is the actual message text.
+                            - For `photo`, this is an icon or a URL pointing to the photo.
+                    example: "Making soup?"
+                  messageType:
+                    type: string
+                    enum: [text, photo]
+                    description: Type of the message
+                    example: "text"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    description: Date and time when the message was sent
+                    example: "2025-01-11T14:45:00Z"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ConversationNotFound" }
+    get:
+      tags: ["messages"]
+      summary: Retrieve messages from a conversation
+      description: Fetches messages from a specific conversation for the logged-in user. Messages are displayed in reverse chronological order and include details such as timestamp, content, sender's username, and status.
+      operationId: getConversationMessages
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: The maximum number of messages to return (for pagination)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: before
+          in: query
+          required: false
+          description: Return messages before this timestamp (for pagination)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Messages retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    description: List of messages in the conversation
+                    items:
+                      type: object
+                      properties:
+                        messageId:
+                          type: string
+                          description: Unique identifier of the message
+                          example: "msg67890"
+                        sender:
+                          type: string
+                          description: Username of the sender
+                          example: "Alice"
+                        messageType:
+                          type: string
+                          enum: [text, photo]
+                          description: Type of the message
+                          example: "text"
+                        content:
+                          type: string
+                          description: |-
+                            Content of the message:
+                            - For `text`, this is the actual message text.
+                            - For `photo`, this is a URL pointing to the photo.
+                          example: "Hello, how are you?"
+                        timestamp:
+                          type: string
+                          format: date-time
+                          description: Date and time when the message was sent
+                          example: "2025-01-11T14:30:00Z"
+                        status:
+                          type: string
+                          enum: [sent, received, read]
+                          description: Status of the message
+                          example: "read"
+                        reactions:
+                          type: array
+                          description: Reactions to the message
+                          items:
+                            type: object
+                            properties:
+                              username:
+                                type: string
+                                description: Username of the user who reacted
+                                example: "Bob"
+                              reaction:
+                                type: string
+                                description: Reaction emoji or text
+                                example: "👍"
+                  hasMore:
+                    type: boolean
+                    description: Indicates if there are more messages to fetch
+                    example: true
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ConversationNotFound" }
+    
+  /messages/{messageId}:
+    delete:
+      tags: ["messages"]
+      summary: Delete a message
+      description: |-
+        Allows a user to delete a message they have sent. This operation is restricted to the
+        sender of the message, ensuring that users cannot delete messages sent by others.
+      operationId: deleteMessage
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          description: Unique identifier of the message to be deleted
+          schema:
+            type: string
+            example: "msg123"
+      responses:
+        "200":
+          description: Message deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messageId:
+                    type: string
+                    description: Unique identifier of the deleted message
+                    example: "msg123"
+                  username:
+                    type: string
+                    description: Username of the user who deleted the message
+                    example: "Joshua"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        
+  /messages/{messageId}/forward:
+    parameters:
+    - name: messageId
+      in: path
+      required: true
+      description: Unique identifier of the message to be forwarded
+      schema:
+        type: string
+    post:
+      tags: ["messages"]
+      summary: Forward a message to another conversation
+      description: |-
+        Allows a user to forward an existing message to another conversation. The forwarded message retains the original content and sender information.
+      operationId: forwardMessage
+      security:
+        - UserIdentifierAuth: []
+      requestBody:
+        description: Details of the message to be forwarded
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                originalMessageId:
+                  type: string
+                  description: Unique identifier of the message being forwarded
+                  example: "msg12345"
+                targetConversationId:
+                  type: string
+                  description: Unique identifier of the target conversation
+                  example: "chat65"
+              required:
+                - originalMessageId
+                - targetConversationId
+      responses:
+        "201": 
+          description: Message forwarded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  newMessageId:
+                    type: string
+                    description: Unique identifier of the forwarded message in the target conversation
+                    example: "msg67890"
+                  originalMessageId:
+                    type: string
+                    description: Unique identifier of the original message
+                    example: "msg12345"
+                  targetConversationId:
+                    type: string
+                    description: Unique identifier of the target conversation
+                    example: "chat65"
+                  sender:
+                    type: string
+                    description: Username of the original sender
+                    example: "Sally"
+                  content:
+                    type: string
+                    description: |-
+                            Content of the message:
+                            - For `text`, this is the actual message text.
+                            - For `photo`, this is an icon or a URL pointing to the photo.
+                    example: "Your friend is so annoying"
+                  messageType:
+                    type: string
+                    enum: [text, photo]
+                    description: Type of the message (text or photo)
+                    example: "text"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    description: Date and time when the message was forwarded
+                    example: "2025-01-11T15:00:00Z"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }      
+        
+  /messages/{messageId}/comments:
+    post:
+      tags: ["messages"]
+      summary: Comment a message
+      description: |-
+        Allows a user to add a reaction or comment to an existing message. Reactions can include text
+        or emojis and are associated with the user's username.
+      operationId: commentMessage
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          description: Unique identifier of the message to comment on
+          schema:
+            type: string
+            example: "msg123"
+      requestBody:
+        description: Details of the comment to be added
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
+                  description: The text or emoji reaction to add as a comment
+                  example: "👍"
+              required:
+                - comment
+      responses:
+        "201": 
+          description: Comment added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commentId:
+                    type: string
+                    description: Unique identifier of the newly added comment
+                    example: "cmt67890"
+                  messageId:
+                    type: string
+                    description: Unique identifier of the message the comment was added to
+                    example: "msg123"
+                  username:
+                    type: string
+                    description: Username of the user who added the comment
+                    example: "Bob"
+                  comment:
+                    type: string
+                    description: The content of the comment
+                    example: "👍"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    description: Date and time when the comment was added
+                    example: "2025-01-11T15:30:00Z"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        
+  /messages/{messageId}/comments/{commentId}:
+    delete:
+      tags: ["messages"]
+      summary: Remove a comment from a message
+      description: |-
+        Allows a user to remove their previously added reaction or comment from a specific message. 
+        Only the user who added the comment can delete it.
+      operationId: uncommentMessage
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          description: Unique identifier of the message containing the comment
+          schema:
+            type: string
+            example: "msg123"
+        - name: commentId
+          in: path
+          required: true
+          description: Unique identifier of the comment to be removed
+          schema:
+            type: string
+            example: "cmt67890"
+      responses:
+        "200":
+          description: Comment removed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messageId:
+                    type: string
+                    description: Unique identifier of the message from which the comment was removed
+                    example: "msg123"
+                  commentId:
+                    type: string
+                    description: Unique identifier of the removed comment
+                    example: "cmt67890"
+                  username:
+                    type: string
+                    description: Username of the user who removed the comment
+                    example: "Bob"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+  
+  /groups:
+    get:
+      tags: ["groups"]
+      summary: Retrieve groups the user is a member   of
+      description: |-
+        Fetches a list of groups the authenticated user is a member of. 
+        Users cannot see groups they are not part of.
+      operationId: getMyGroups
+      security:
+        - UserIdentifierAuth: []
+      responses:
+        "200":
+          description: List of groups retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    groupId:
+                      type: string
+                      description: Unique identifier of the group
+                      example: "group5"
+                    groupName:
+                      type: string
+                      description: Name of the group
+                      example: "Gathering"
+        "401":
+          description: Unauthorized - User identifier missing or invalid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Unauthorized access."
+  
+  /groups/{groupId}:
+    post:
+      tags: ["groups"]
+      summary: Add users to a group
+      description: |-
+        Allows a user to add one or more users to an existing group conversation. 
+        The user performing this action must already be a member of the group.
+      operationId: addToGroup
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Unique identifier of the group
+          schema:
+            type: string
+            example: "group1"
+      requestBody:
+        description: List of users to add to the group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                usernames:
+                  type: array
+                  description: List of usernames to add to the group
+                  items:
+                    type: string
+                  example: ["Alice", "Bob"]
+              required:
+                - usernames
+      responses:
+        '200':
+          description: Users added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groupId:
+                    type: string
+                    description: Unique identifier of the group
+                    example: "group1"
+                  addedUsers:
+                    type: array
+                    description: List of usernames successfully added to the group
+                    items:
+                      type: string
+                    example: ["Alice", "Bob"]
+                  failedUsers:
+                    type: array
+                    description: List of usernames that could not be added (non-existent/not found users)
+                    items:
+                      type: string
+                    example: ["Charlie"]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+    delete:
+      tags: ["groups"]
+      summary: Leave a group
+      description: |-
+        Allows a user to leave a group conversation. If the user is the only member of the group,
+        the group is deleted. If other members remain, the user is removed from the group.
+      operationId: leaveGroup
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Unique identifier of the group
+          schema:
+            type: string
+            example: "group1"
+      responses:
+        "200":
+          description: User successfully left the group
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groupId:
+                    type: string
+                    description: Unique identifier of the group the user left
+                    example: "group1"
+                  username:
+                    type: string
+                    description: Username of the user who left the group
+                    example: "Alice"
+                  isGroupDeleted:
+                    type: boolean
+                    description: Indicates whether the group was deleted after the user left
+                    example: false
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+
+    put:
+      tags: ["groups"]
+      summary: Update the group name
+      description: |-
+        Allows a user to update the name of a group conversation. 
+        The user must be a member of the group, and the new group name must be unique.
+      operationId: setGroupName
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Unique identifier of the group
+          schema:
+            type: string
+            example: "group2"
+      requestBody:
+        description: The new name for the group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                groupName:
+                  type: string
+                  description: The new name for the group
+                  example: "Project"
+                  minLength: 1
+                  maxLength: 50
+              required:
+                - groupName
+      responses:
+        "200":
+          description: Group name updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groupId:
+                    type: string
+                    description: Unique identifier of the group
+                    example: "group2"
+                  oldGroupName:
+                    type: string
+                    description: The previous name of the group
+                    example: "Team"
+                  newGroupName:
+                    type: string
+                    description: The updated name of the group
+                    example: "Project"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        
+    patch:
+      tags: ["groups"]
+      summary: Update the group photo
+      description: |-
+        Allows a user to update the photo of a group conversation. 
+        The user must be a member of the group, and the new photo should be a valid URL.
+      operationId: setGroupPhoto
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Unique identifier of the group
+          schema:
+            type: string
+            example: "group2"
+      requestBody:
+        description: The new photo URL for the group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                groupPhoto:
+                  type: string
+                  format: uri
+                  description: The URL of the new group photo
+                  example: "https://example.com/photos/group2.jpg"
+              required:
+                - groupPhoto
+      responses:
+        "200":
+          description: Group photo updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groupId:
+                    type: string
+                    description: Unique identifier of the group
+                    example: "group2"
+                  oldGroupPhoto:
+                    type: string
+                    description: The previous photo URL of the group
+                    example: "https://example.com/photos/old-group-photo.jpg"
+                  newGroupPhoto:
+                    type: string
+                    description: The updated photo URL of the group
+                    example: "https://example.com/photos/group2.jpg"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        
+components:
+  securitySchemes:
+    UserIdentifierAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |-
+        User identifier sent by the server in the login.
+      
+  responses:
+    Unauthorized:
+      description: The user identifier is missing or is expired
+    BadRequest:
+      description: The request was not compliant with the documentation (eg. missing fields, etc)
+    InternalServerError:
+      description: The server encountered an internal error. Further info in server logs
+    ConversationNotFound:
+      description: The specified conversationId was not found
+
+security:
+  - UserIdentifierAuth: []
+  
