@@ -27,7 +27,7 @@ WASAText is a project developed for a Web and Software Architecture course. It p
 - `PUT /groups/{groupId}`: Set the group name
 - `PATCH /groups/{groupId}`: Set the group photo
 
-##Testing
+## Testing
 
 To use the tests provided:
 
