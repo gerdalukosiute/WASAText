@@ -1,9 +1,14 @@
 <script setup>
 import { RouterLink, RouterView } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
+const isMainView = computed(() => route.name === 'main')
 </script>
 
 <template>
-  <header>
+  <header v-if="!isMainView">
     <nav>
       <RouterLink to="/">Home</RouterLink>
       <RouterLink to="/about">About</RouterLink>
@@ -55,3 +60,4 @@ nav a {
   }
 }
 </style>
+

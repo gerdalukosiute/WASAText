@@ -57,6 +57,7 @@ async function handleSubmit(e) {
     
     if (response.data.identifier) {
       localStorage.setItem('userId', response.data.identifier)
+      localStorage.setItem('username', trimmedUsername) // Store the username
       router.push('/main')
     } else {
       throw new Error('User identifier not received from server')
