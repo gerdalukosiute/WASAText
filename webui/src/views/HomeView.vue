@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import axios from 'axios'
 
 const username = ref('')
 const error = ref('')
@@ -41,37 +42,28 @@ async function handleSubmit(e) {
     return
   }
 
-  const requestBody = JSON.stringify({ username: trimmedUsername })
+  const requestBody = { username: trimmedUsername }
   console.log('Request body:', requestBody)
 
   try {
-    const response = await fetch('http://localhost:8080/session', {
-      method: 'POST',
+    const response = await axios.post('http://localhost:8080/session', requestBody, {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-      },
-      body: requestBody,
+      }
     })
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('Server error response:', errorText)
-      throw new Error(errorText || `HTTP error! status: ${response.status}`)
-    }
-
-    const data = await response.json()
-    console.log('Login successful:', data)
+    console.log('Login successful:', response.data)
     
-    if (data.identifier) {
-      localStorage.setItem('userId', data.identifier)
+    if (response.data.identifier) {
+      localStorage.setItem('userId', response.data.identifier)
       router.push('/main')
     } else {
       throw new Error('User identifier not received from server')
     }
   } catch (err) {
     console.error('Login error:', err)
-    error.value = `Failed to login: ${err.message}`
+    error.value = `Failed to login: ${err.response?.data || err.message}`
   }
 }
 </script>
