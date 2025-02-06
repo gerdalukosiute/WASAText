@@ -1,5 +1,4 @@
 <script setup>
-// add any necessary imports or logic here
 </script>
 
 <template>
