@@ -6,15 +6,22 @@ import (
 
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/gerdalukosiute/WASAText/service/database"
+	"github.com/google/uuid"
 	"github.com/julienschmidt/httprouter"
 )
 
 func (rt *_router) handleAddToGroup(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	groupID := ps.ByName("groupId")
 
+	// Validate groupID
+	if _, err := uuid.Parse(groupID); err != nil {
+		ctx.Logger.WithError(err).Warn("Invalid group ID format")
+		sendJSONError(w, "Invalid group ID format", http.StatusBadRequest)
+		return
+	}
+
 	var req struct {
 		Username string `json:"username"`
-		Title    string `json:"title,omitempty"` // Optional title
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		ctx.Logger.WithError(err).Warn("Invalid request body")
@@ -22,7 +29,7 @@ func (rt *_router) handleAddToGroup(w http.ResponseWriter, r *http.Request, ps h
 		return
 	}
 
-	err := rt.db.AddUserToGroup(groupID, userID, req.Username, req.Title)
+	err := rt.db.AddUserToGroup(groupID, userID, req.Username)
 	if err != nil {
 		switch err {
 		case database.ErrUnauthorized:
@@ -47,11 +54,9 @@ func (rt *_router) handleAddToGroup(w http.ResponseWriter, r *http.Request, ps h
 	response := struct {
 		GroupID  string `json:"groupId"`
 		Username string `json:"username"`
-		Title    string `json:"title,omitempty"`
 	}{
 		GroupID:  groupID,
 		Username: req.Username,
-		Title:    req.Title,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

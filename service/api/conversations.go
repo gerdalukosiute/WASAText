@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/gerdalukosiute/WASAText/service/database"
@@ -22,13 +22,12 @@ type GroupResponse struct {
 
 // ConversationDetailsResponse represents the API response for conversation details
 type ConversationDetailsResponse struct {
-	ID           string                `json:"conversationId"`
+	ID           string                `json:"id"`
 	Title        string                `json:"title"`
 	IsGroup      bool                  `json:"isGroup"`
-	ProfilePhoto string                `json:"profilePhoto"`
+	UpdatedAt    time.Time             `json:"updatedAt"`
 	Participants []ParticipantResponse `json:"participants"`
 	Messages     []MessageResponse     `json:"messages"`
-	UpdatedAt    time.Time             `json:"updatedAt"`
 }
 
 // ParticipantResponse represents a participant in the API response
@@ -64,10 +63,9 @@ type CommentResponse struct {
 type ConversationResponse struct {
 	ID           string          `json:"conversationId"`
 	Title        string          `json:"title"`
-	ProfilePhoto string          `json:"profilePhoto"`
+	ProfilePhoto *string         `json:"profilePhoto"`
 	IsGroup      bool            `json:"isGroup"`
 	LastMessage  MessageResponse `json:"lastMessage"`
-	UpdatedAt    time.Time       `json:"updatedAt"`
 }
 
 func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
@@ -94,14 +92,6 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 
 	response := make([]ConversationResponse, len(conversations))
 	for i, conv := range conversations {
-		lastMessageReactions := make([]CommentResponse, len(conv.LastMessage.Comments))
-		for j, r := range conv.LastMessage.Comments {
-			lastMessageReactions[j] = CommentResponse{
-				Username: r.Username,
-				Content:  r.Content,
-			}
-		}
-
 		response[i] = ConversationResponse{
 			ID:           conv.ID,
 			Title:        conv.Title,
@@ -109,14 +99,15 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 			IsGroup:      conv.IsGroup,
 			LastMessage: MessageResponse{
 				ID:        conv.LastMessage.ID,
+				SenderID:  conv.LastMessage.SenderID,
 				Sender:    conv.LastMessage.Sender,
 				Type:      conv.LastMessage.Type,
 				Content:   conv.LastMessage.Content,
+				Icon:      conv.LastMessage.Icon,
 				Timestamp: conv.LastMessage.Timestamp,
 				Status:    conv.LastMessage.Status,
-				Comments:  lastMessageReactions,
+				Comments:  []CommentResponse{}, // Assuming comments are not fetched in this query
 			},
-			UpdatedAt: conv.UpdatedAt,
 		}
 	}
 
@@ -131,6 +122,7 @@ func convertMessages(dbMessages []database.Message) []MessageResponse {
 	for i, m := range dbMessages {
 		messages[i] = MessageResponse{
 			ID:        m.ID,
+			SenderID:  m.SenderID,
 			Sender:    m.Sender,
 			Type:      m.Type,
 			Content:   m.Content,
@@ -195,6 +187,7 @@ func (rt *_router) handleGetConversationDetails(w http.ResponseWriter, r *http.R
 		ID:           conversation.ID,
 		Title:        conversation.Title,
 		IsGroup:      conversation.IsGroup,
+		UpdatedAt:    conversation.UpdatedAt,
 		Participants: convertParticipants(conversation.Participants),
 		Messages:     convertMessages(conversation.Messages),
 	}
@@ -264,6 +257,7 @@ func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Reques
 		ID:           conversation.ID,
 		Title:        conversation.Title,
 		IsGroup:      conversation.IsGroup,
+		UpdatedAt:    conversation.UpdatedAt,
 		Participants: convertParticipants(conversation.Participants),
 		Messages:     convertMessages(conversation.Messages),
 	}
@@ -351,76 +345,73 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 	json.NewEncoder(w).Encode(response)
 }
 
-func (rt *_router) handleGetMessages(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	conversationID := ps.ByName("conversationId")
+// Helper function to check if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
 
-	// Check if the conversation exists and if the user is a participant
-	isParticipant, err := rt.db.IsUserInConversation(userID, conversationID)
+func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
+	messageID := ps.ByName("messageId")
+
+	ctx.Logger.WithFields(logrus.Fields{
+		"messageID": messageID,
+		"userID":    userID,
+	}).Info("Handling update message status request")
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ctx.Logger.WithError(err).Error("Invalid request body")
+		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate the status
+	validStatuses := []string{"delivered", "read"}
+	if !contains(validStatuses, req.Status) {
+		ctx.Logger.WithField("status", req.Status).Error("Invalid status")
+		sendJSONError(w, "Invalid status", http.StatusBadRequest)
+		return
+	}
+
+	err := rt.db.UpdateMessageStatus(messageID, userID, req.Status)
 	if err != nil {
-		if err == database.ErrConversationNotFound {
-			sendJSONError(w, "Conversation not found", http.StatusNotFound)
-		} else {
-			ctx.Logger.WithError(err).Error("Failed to check user participation in conversation")
+		switch err {
+		case database.ErrMessageNotFound:
+			ctx.Logger.WithError(err).Error("Message not found")
+			sendJSONError(w, "Message not found", http.StatusNotFound)
+		case database.ErrUnauthorized:
+			ctx.Logger.WithError(err).Error("User not authorized to update message status")
+			sendJSONError(w, "Unauthorized", http.StatusForbidden)
+		default:
+			ctx.Logger.WithError(err).Error("Failed to update message status")
 			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
 		}
 		return
 	}
-	if !isParticipant {
-		sendJSONError(w, "User is not a participant in this conversation", http.StatusForbidden)
-		return
-	}
 
-	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
-	if err != nil || limit <= 0 {
-		limit = 50 // Default limit if not specified or invalid
-	}
-
-	before := time.Now()
-	if beforeStr := r.URL.Query().Get("before"); beforeStr != "" {
-		before, err = time.Parse(time.RFC3339, beforeStr)
-		if err != nil {
-			ctx.Logger.WithError(err).Error("Failed to parse 'before' parameter")
-			sendJSONError(w, "Invalid 'before' parameter", http.StatusBadRequest)
-			return
-		}
-	}
-
-	messages, err := rt.db.GetMessages(conversationID, limit, before)
+	// Fetch the updated message
+	message, err := rt.db.GetMessageByID(messageID)
 	if err != nil {
-		ctx.Logger.WithError(err).Error("Failed to get messages")
+		ctx.Logger.WithError(err).Error("Failed to fetch updated message")
 		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	response := struct {
-		Messages []MessageResponse `json:"messages"`
-	}{
-		Messages: make([]MessageResponse, len(messages)),
+	// Convert the single message to the response format using the existing conversion function
+	convertedMessages := convertMessages([]database.Message{*message})
+	if len(convertedMessages) == 0 {
+		ctx.Logger.Error("Failed to convert message")
+		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
-
-	for i, msg := range messages {
-		response.Messages[i] = MessageResponse{
-			ID:        msg.ID,
-			SenderID:  msg.SenderID,
-			Sender:    msg.Sender,
-			Type:      msg.Type,
-			Content:   msg.Content,
-			Icon:      msg.Icon,
-			Timestamp: msg.Timestamp,
-			Status:    msg.Status,
-			Comments:  make([]CommentResponse, len(msg.Comments)),
-		}
-		for j, comment := range msg.Comments {
-			response.Messages[i].Comments[j] = CommentResponse{
-				ID:        comment.ID,
-				MessageID: comment.MessageID,
-				UserID:    comment.UserID,
-				Username:  comment.Username,
-				Content:   comment.Content,
-				Timestamp: comment.Timestamp,
-			}
-		}
-	}
+	response := convertedMessages[0]
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -550,10 +541,10 @@ func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps h
 	ctx.Logger.WithFields(logrus.Fields{
 		"messageID": messageID,
 		"userID":    userID,
-	}).Info("Attempting to add comment")
+	}).Info("Attempting to add comment or emoji reaction")
 
 	var req struct {
-		Comment string `json:"comment"`
+		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		ctx.Logger.WithError(err).Error("Failed to decode request body")
@@ -561,15 +552,22 @@ func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps h
 		return
 	}
 
-	if req.Comment == "" {
-		ctx.Logger.Error("Empty comment provided")
-		sendJSONError(w, "Comment cannot be empty", http.StatusBadRequest)
+	if req.Content == "" {
+		ctx.Logger.Error("Empty content provided")
+		sendJSONError(w, "Content cannot be empty", http.StatusBadRequest)
 		return
 	}
 
-	comment, err := rt.db.AddComment(messageID, userID, req.Comment)
+	runeCount := utf8.RuneCountInString(req.Content)
+	if runeCount > 2 || (runeCount == 2 && req.Content != "❤️") {
+		ctx.Logger.Error("Invalid emoji: not a valid single character or heart emoji")
+		sendJSONError(w, "Invalid emoji: must be a single character or heart emoji", http.StatusBadRequest)
+		return
+	}
+
+	comment, err := rt.db.AddComment(messageID, userID, req.Content)
 	if err != nil {
-		ctx.Logger.WithError(err).Error("Failed to add comment")
+		ctx.Logger.WithError(err).Error("Failed to add comment or emoji reaction")
 		switch {
 		case err.Error() == "user not authorized to comment on this message":
 			sendJSONError(w, "Unauthorized", http.StatusUnauthorized)
@@ -585,7 +583,8 @@ func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps h
 		"commentID": comment.ID,
 		"messageID": comment.MessageID,
 		"userID":    comment.UserID,
-	}).Info("Comment added successfully")
+		"content":   comment.Content,
+	}).Info("Comment or emoji reaction added successfully")
 
 	response := struct {
 		CommentID string    `json:"commentId"`

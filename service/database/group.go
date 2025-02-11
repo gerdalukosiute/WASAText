@@ -30,65 +30,24 @@ func (db *appdbimpl) IsGroupMember(groupID, userID string) (bool, error) {
 	return exists, nil
 }
 
-func (db *appdbimpl) AddUserToGroup(groupID, adderID, username string, title string) error {
-	// Check if the group exists in conversations
-	var groupExists bool
-	err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM conversations WHERE id = ? AND is_group = 1)", groupID).Scan(&groupExists)
+func (db *appdbimpl) AddUserToGroup(groupID, adderID, username string) error {
+	// Check if the group exists
+	var exists bool
+	err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM conversations WHERE id = ? AND is_group = 1)", groupID).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("error checking group existence: %w", err)
 	}
+	if !exists {
+		return ErrGroupNotFound
+	}
 
-	// If the group doesn't exist, create it and add the adder as the first member
-	if !groupExists {
-		// Start a transaction
-		tx, err := db.c.Begin()
-		if err != nil {
-			return fmt.Errorf("error starting transaction: %w", err)
-		}
-		defer tx.Rollback() // Rollback the transaction if it's not committed
-
-		// Use the provided title or a default one
-		if title == "" {
-			title = fmt.Sprintf("Group %s", groupID[:8]) // Use first 8 characters of groupID as a default title
-		}
-
-		// Create the group in conversations table
-		_, err = tx.Exec("INSERT INTO conversations (id, is_group, title) VALUES (?, 1, ?)", groupID, title)
-		if err != nil {
-			return fmt.Errorf("error creating group in conversations: %w", err)
-		}
-
-		// Create the group in groups table
-		_, err = tx.Exec("INSERT INTO groups (id, name) VALUES (?, ?)", groupID, title)
-		if err != nil {
-			return fmt.Errorf("error creating group in groups table: %w", err)
-		}
-
-		// Add the adder as the first member of the group
-		_, err = tx.Exec("INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)", adderID, groupID)
-		if err != nil {
-			return fmt.Errorf("error adding adder to new group: %w", err)
-		}
-
-		// Add the adder to group_members table
-		_, err = tx.Exec("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", groupID, adderID)
-		if err != nil {
-			return fmt.Errorf("error adding adder to group_members: %w", err)
-		}
-
-		// Commit the transaction
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("error committing transaction: %w", err)
-		}
-	} else {
-		// If the group exists, check if the adder is a member
-		isMember, err := db.IsGroupMember(groupID, adderID)
-		if err != nil {
-			return fmt.Errorf("error checking group membership: %w", err)
-		}
-		if !isMember {
-			return ErrUnauthorized
-		}
+	// Check if the adder is a member of the group
+	err = db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM user_conversations WHERE conversation_id = ? AND user_id = ?)", groupID, adderID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("error checking adder membership: %w", err)
+	}
+	if !exists {
+		return ErrUnauthorized
 	}
 
 	// Get the user ID for the given username
@@ -102,42 +61,40 @@ func (db *appdbimpl) AddUserToGroup(groupID, adderID, username string, title str
 	}
 
 	// Check if the user is already a member of the group
-	isMember, err := db.IsGroupMember(groupID, userID)
+	err = db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM user_conversations WHERE conversation_id = ? AND user_id = ?)", groupID, userID).Scan(&exists)
 	if err != nil {
-		return fmt.Errorf("error checking if user is already in group: %w", err)
+		return fmt.Errorf("error checking user membership: %w", err)
 	}
-	if isMember {
+	if exists {
 		return ErrUserAlreadyInGroup
 	}
 
-	// Start a transaction for adding the new user
+	// Start a transaction
 	tx, err := db.c.Begin()
 	if err != nil {
-		return fmt.Errorf("error starting transaction for adding user: %w", err)
+		return fmt.Errorf("error starting transaction: %w", err)
 	}
-	defer tx.Rollback() // Rollback the transaction if it's not committed
+	defer tx.Rollback()
 
-	// Add the user to the group in user_conversations
+	// Add the user to the conversation
 	_, err = tx.Exec("INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)", userID, groupID)
 	if err != nil {
-		return fmt.Errorf("error adding user to user_conversations: %w", err)
+		return fmt.Errorf("error adding user to conversation: %w", err)
 	}
 
-	// Add the user to the group in group_members
+	// Add the user to the group_members table
 	_, err = tx.Exec("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", groupID, userID)
 	if err != nil {
 		return fmt.Errorf("error adding user to group_members: %w", err)
 	}
 
-	// Commit the transaction
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("error committing transaction for adding user: %w", err)
+		return fmt.Errorf("error committing transaction: %w", err)
 	}
 
 	return nil
 }
 
-// not used yet
 func (db *appdbimpl) GetUserByUsername(username string) (User, error) {
 	var user User
 	err := db.c.QueryRow("SELECT id, name FROM users WHERE name = ?", username).Scan(&user.ID, &user.Name)

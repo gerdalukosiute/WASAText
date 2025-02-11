@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofrs/uuid"
 	"github.com/sirupsen/logrus"
@@ -12,67 +13,92 @@ import (
 func (db *appdbimpl) GetUserConversations(userID string) ([]Conversation, error) {
 	logrus.WithField("userID", userID).Info("Getting user conversations")
 	query := `
-		SELECT c.id, c.title, c.profile_photo, c.is_group,
-			   m.type, m.content, m.icon, m.created_at
-		FROM users u
-		LEFT JOIN user_conversations uc ON u.id = uc.user_id
-		LEFT JOIN conversations c ON uc.conversation_id = c.id
-		LEFT JOIN messages m ON c.id = m.conversation_id
-		WHERE u.id = ?
-		AND m.created_at = (
-			SELECT MAX(created_at)
-			FROM messages
-			WHERE conversation_id = c.id
-		)
-		ORDER BY m.created_at DESC
-	`
+    SELECT c.id, c.title, c.is_group,
+           CASE 
+               WHEN c.is_group = 0 THEN (
+                   SELECT u.name 
+                   FROM users u 
+                   JOIN user_conversations uc ON u.id = uc.user_id 
+                   WHERE uc.conversation_id = c.id AND u.id != ?
+               )
+               ELSE c.title
+           END as display_title,
+           CASE 
+               WHEN c.is_group = 0 THEN (
+                   SELECT u.photo_url 
+                   FROM users u 
+                   JOIN user_conversations uc ON u.id = uc.user_id 
+                   WHERE uc.conversation_id = c.id AND u.id != ?
+               )
+               ELSE c.profile_photo
+           END as display_photo,
+           m.id as message_id, m.sender_id, u_sender.name as sender_name, m.type, m.content, m.icon, m.created_at, m.status
+    FROM users u
+    JOIN user_conversations uc ON u.id = uc.user_id
+    JOIN conversations c ON uc.conversation_id = c.id
+    LEFT JOIN (
+        SELECT m1.*
+        FROM messages m1
+        INNER JOIN (
+            SELECT conversation_id, MAX(created_at) as max_created_at
+            FROM messages
+            GROUP BY conversation_id
+        ) m2 ON m1.conversation_id = m2.conversation_id AND m1.created_at = m2.max_created_at
+    ) m ON c.id = m.conversation_id
+    LEFT JOIN users u_sender ON m.sender_id = u_sender.id
+    WHERE u.id = ?
+    ORDER BY m.created_at DESC NULLS LAST
+    `
 
-	rows, err := db.c.Query(query, userID)
+	rows, err := db.c.Query(query, userID, userID, userID)
 	if err != nil {
 		logrus.WithError(err).Error("Error querying user conversations")
 		return nil, fmt.Errorf("error querying user conversations: %w", err)
 	}
 	defer rows.Close()
 
-	logrus.WithFields(logrus.Fields{
-		"userID": userID,
-		"query":  query,
-	}).Debug("Executed query")
-
 	var conversations []Conversation
 	for rows.Next() {
 		var conv Conversation
-		var messageType, messageContent, messageIcon sql.NullString
-		var updatedAt sql.NullTime
+		var displayTitle, displayPhoto, messageID, senderID, senderName, messageType, messageContent, messageIcon, messageStatus sql.NullString
+		var messageCreatedAt sql.NullTime
 
 		err := rows.Scan(
 			&conv.ID,
 			&conv.Title,
-			&conv.ProfilePhoto,
 			&conv.IsGroup,
+			&displayTitle,
+			&displayPhoto,
+			&messageID,
+			&senderID,
+			&senderName,
 			&messageType,
 			&messageContent,
 			&messageIcon,
-			&updatedAt,
+			&messageCreatedAt,
+			&messageStatus,
 		)
 		if err != nil {
 			logrus.WithError(err).Error("Error scanning conversation row")
 			return nil, fmt.Errorf("error scanning conversation row: %w", err)
 		}
 
-		if messageType.Valid {
-			conv.LastMessage.Type = messageType.String
+		conv.Title = displayTitle.String
+		if displayPhoto.Valid {
+			conv.ProfilePhoto = &displayPhoto.String
 		}
-		if messageContent.Valid {
-			conv.LastMessage.Content = messageContent.String
+
+		conv.LastMessage = Message{
+			ID:       messageID.String,
+			SenderID: senderID.String,
+			Sender:   senderName.String,
+			Type:     messageType.String,
+			Content:  messageContent.String,
+			Icon:     messageIcon.String,
+			Status:   messageStatus.String,
 		}
-		if messageIcon.Valid {
-			conv.LastMessage.Icon = messageIcon.String
-		}
-		if updatedAt.Valid {
-			conv.UpdatedAt = updatedAt.Time
-		} else {
-			conv.UpdatedAt = time.Time{}
+		if messageCreatedAt.Valid {
+			conv.LastMessage.Timestamp = messageCreatedAt.Time
 		}
 
 		conversations = append(conversations, conv)
@@ -97,7 +123,7 @@ func (db *appdbimpl) AddMessage(conversationID, senderID, messageType, content s
 	_, err := db.c.Exec(`
 		INSERT INTO messages (id, conversation_id, sender_id, type, content, created_at, status)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, messageID, conversationID, senderID, messageType, content, time.Now(), "sent")
+	`, messageID, conversationID, senderID, messageType, content, time.Now(), "delivered")
 
 	if err != nil {
 		return "", fmt.Errorf("error adding message: %w", err)
@@ -294,47 +320,130 @@ func (db *appdbimpl) DeleteMessage(messageID, userID string) (*Message, error) {
 	return &messageToDelete, nil
 }
 
-func (db *appdbimpl) GetMessages(conversationID string, limit int, before time.Time) ([]Message, error) {
-	// Query for the messages
-	rows, err := db.c.Query(`
-		SELECT m.id, m.type, m.content, m.icon, m.sender_id, m.created_at, m.status
-		FROM messages m
-		WHERE m.conversation_id = ? AND m.created_at < ?
-		ORDER BY m.created_at DESC
-		LIMIT ?
-	`, conversationID, before, limit)
+func (db *appdbimpl) UpdateMessageStatus(messageID, userID, newStatus string) error {
+	// Start a transaction
+	tx, err := db.c.Begin()
 	if err != nil {
-		return nil, fmt.Errorf("error querying messages: %w", err)
+		return fmt.Errorf("error starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Check if the user is authorized to update this message
+	var conversationID string
+	var currentStatus string
+	err = tx.QueryRow("SELECT conversation_id, status FROM messages WHERE id = ?", messageID).Scan(&conversationID, &currentStatus)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrMessageNotFound
+		}
+		return fmt.Errorf("error fetching message: %w", err)
+	}
+
+	// Check if the user is part of the conversation
+	var count int
+	err = tx.QueryRow("SELECT COUNT(*) FROM user_conversations WHERE user_id = ? AND conversation_id = ?", userID, conversationID).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("error checking user authorization: %w", err)
+	}
+	if count == 0 {
+		return ErrUnauthorized
+	}
+
+	// Check if it's a group conversation
+	var participantCount int
+	err = tx.QueryRow("SELECT COUNT(*) FROM user_conversations WHERE conversation_id = ?", conversationID).Scan(&participantCount)
+	if err != nil {
+		return fmt.Errorf("error checking conversation type: %w", err)
+	}
+
+	if participantCount > 2 {
+		// It's a group conversation
+		// Update or insert the user's read status
+		_, err = tx.Exec("INSERT INTO message_read_status (message_id, user_id, status) VALUES (?, ?, ?) ON CONFLICT(message_id, user_id) DO UPDATE SET status = ?", messageID, userID, newStatus, newStatus)
+		if err != nil {
+			return fmt.Errorf("error updating user read status: %w", err)
+		}
+
+		// Check if all participants (except the sender) have read the message
+		var readCount int
+		err = tx.QueryRow("SELECT COUNT(*) FROM message_read_status WHERE message_id = ? AND status = 'read'", messageID).Scan(&readCount)
+		if err != nil {
+			return fmt.Errorf("error checking read status: %w", err)
+		}
+
+		if readCount == participantCount-1 { // All participants except the sender have read the message
+			newStatus = "read"
+		} else {
+			newStatus = "delivered"
+		}
+	}
+
+	// Update the message status if it's changing
+	if currentStatus != newStatus {
+		_, err = tx.Exec("UPDATE messages SET status = ? WHERE id = ?", newStatus, messageID)
+		if err != nil {
+			return fmt.Errorf("error updating message status: %w", err)
+		}
+	}
+
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("error committing transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (db *appdbimpl) GetMessageByID(messageID string) (*Message, error) {
+	query := `
+        SELECT m.id, m.sender_id, u.name AS sender, m.type, m.content, m.icon, m.created_at, m.status
+        FROM messages m
+        JOIN users u ON m.sender_id = u.id
+        WHERE m.id = ?
+    `
+	var msg Message
+	var icon sql.NullString // Use sql.NullString to handle potential NULL values
+	err := db.c.QueryRow(query, messageID).Scan(
+		&msg.ID, &msg.SenderID, &msg.Sender, &msg.Type, &msg.Content, &icon, &msg.Timestamp, &msg.Status,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrMessageNotFound
+		}
+		return nil, fmt.Errorf("error fetching message: %w", err)
+	}
+
+	// Set the Icon field based on the sql.NullString value
+	if icon.Valid {
+		msg.Icon = icon.String
+	} else {
+		msg.Icon = "" // or set a default value if preferred
+	}
+
+	// Fetch comments for the message
+	commentsQuery := `
+        SELECT c.id, c.message_id, c.user_id, u.name AS username, c.content, c.created_at
+        FROM comments c
+        JOIN users u ON c.user_id = u.id
+        WHERE c.message_id = ?
+        ORDER BY c.created_at ASC
+    `
+	rows, err := db.c.Query(commentsQuery, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching comments: %w", err)
 	}
 	defer rows.Close()
 
-	var messages []Message
 	for rows.Next() {
-		var m Message
-		var icon sql.NullString
-		err := rows.Scan(&m.ID, &m.Type, &m.Content, &icon, &m.Sender, &m.Timestamp, &m.Status)
+		var comment Comment
+		err := rows.Scan(&comment.ID, &comment.MessageID, &comment.UserID, &comment.Username, &comment.Content, &comment.Timestamp)
 		if err != nil {
-			return nil, fmt.Errorf("error scanning message: %w", err)
+			return nil, fmt.Errorf("error scanning comment: %w", err)
 		}
-		if icon.Valid {
-			m.Icon = icon.String
-		}
-
-		// Fetch comments for this message
-		comments, err := db.GetComments(m.ID)
-		if err != nil {
-			return nil, fmt.Errorf("error fetching comments: %w", err)
-		}
-		m.Comments = comments
-
-		messages = append(messages, m)
+		msg.Comments = append(msg.Comments, comment)
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over messages: %w", err)
-	}
-
-	return messages, nil
+	return &msg, nil
 }
 
 func (db *appdbimpl) isUserAuthorized(userID string, messageID string) (bool, error) {
@@ -380,17 +489,55 @@ func (db *appdbimpl) AddComment(messageID, userID, content string) (*Comment, er
 		return nil, fmt.Errorf("user not authorized to comment on this message")
 	}
 
-	// Generate a new comment ID
-	commentID := uuid.Must(uuid.NewV4()).String()
+	isEmoji := utf8.RuneCountInString(content) <= 2 // Allow for heart emoji (2 runes)
+
+	var commentID string
 	timestamp := time.Now().UTC()
 
-	// Insert the new comment
-	_, err = tx.Exec(`
-		INSERT INTO comments (id, message_id, user_id, content, created_at)
-		VALUES (?, ?, ?, ?, ?)
-	`, commentID, messageID, userID, content, timestamp)
-	if err != nil {
-		return nil, fmt.Errorf("error inserting comment: %w", err)
+	if isEmoji {
+		// Check if the user has already reacted to this message
+		var existingCommentID string
+		err = tx.QueryRow(`
+			SELECT id FROM comments 
+			WHERE message_id = ? AND user_id = ? AND LENGTH(content) <= 4
+		`, messageID, userID).Scan(&existingCommentID)
+
+		if err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("error checking existing reaction: %w", err)
+		}
+
+		if existingCommentID != "" {
+			// Update existing reaction
+			_, err = tx.Exec(`
+				UPDATE comments 
+				SET content = ?, created_at = ?
+				WHERE id = ?
+			`, content, timestamp, existingCommentID)
+			if err != nil {
+				return nil, fmt.Errorf("error updating existing reaction: %w", err)
+			}
+			commentID = existingCommentID
+		} else {
+			// Insert new reaction
+			commentID = uuid.Must(uuid.NewV4()).String()
+			_, err = tx.Exec(`
+				INSERT INTO comments (id, message_id, user_id, content, created_at)
+				VALUES (?, ?, ?, ?, ?)
+			`, commentID, messageID, userID, content, timestamp)
+			if err != nil {
+				return nil, fmt.Errorf("error inserting new reaction: %w", err)
+			}
+		}
+	} else {
+		// Insert the new comment
+		commentID = uuid.Must(uuid.NewV4()).String()
+		_, err = tx.Exec(`
+			INSERT INTO comments (id, message_id, user_id, content, created_at)
+			VALUES (?, ?, ?, ?, ?)
+		`, commentID, messageID, userID, content, timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("error inserting comment: %w", err)
+		}
 	}
 
 	// Commit the transaction
@@ -475,7 +622,12 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 
 	// Get conversation details
 	var details ConversationDetails
-	err = db.c.QueryRow("SELECT id, title, is_group FROM conversations WHERE id = ?", conversationID).Scan(&details.ID, &details.Title, &details.IsGroup)
+	err = db.c.QueryRow("SELECT id, title, is_group, updated_at FROM conversations WHERE id = ?", conversationID).Scan(
+		&details.ID,
+		&details.Title,
+		&details.IsGroup,
+		&details.UpdatedAt,
+	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrConversationNotFound
@@ -485,11 +637,11 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 
 	// Get participants
 	rows, err := db.c.Query(`
-		SELECT u.id, u.name
-		FROM users u
-		JOIN user_conversations uc ON u.id = uc.user_id
-		WHERE uc.conversation_id = ?
-	`, conversationID)
+        SELECT u.id, u.name
+        FROM users u
+        JOIN user_conversations uc ON u.id = uc.user_id
+        WHERE uc.conversation_id = ?
+    `, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching participants: %w", err)
 	}
@@ -505,12 +657,12 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 
 	// Get messages
 	rows, err = db.c.Query(`
-		SELECT m.id, u.id, u.name, m.type, m.content, m.icon, m.created_at, m.status
-		FROM messages m
-		JOIN users u ON m.sender_id = u.id
-		WHERE m.conversation_id = ?
-		ORDER BY m.created_at DESC
-	`, conversationID)
+        SELECT m.id, u.id, u.name, m.type, m.content, m.icon, m.created_at, m.status
+        FROM messages m
+        JOIN users u ON m.sender_id = u.id
+        WHERE m.conversation_id = ?
+        ORDER BY m.created_at DESC
+    `, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching messages: %w", err)
 	}
@@ -518,8 +670,16 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 
 	for rows.Next() {
 		var msg Message
-		if err := rows.Scan(&msg.ID, &msg.SenderID, &msg.Sender, &msg.Type, &msg.Content, &msg.Icon, &msg.Timestamp, &msg.Status); err != nil {
+		var icon sql.NullString // Use sql.NullString for the icon field
+		if err := rows.Scan(&msg.ID, &msg.SenderID, &msg.Sender, &msg.Type, &msg.Content, &icon, &msg.Timestamp, &msg.Status); err != nil {
 			return nil, fmt.Errorf("error scanning message: %w", err)
+		}
+
+		// Handle the NULL case for icon
+		if icon.Valid {
+			msg.Icon = icon.String
+		} else {
+			msg.Icon = "" // or some default value
 		}
 
 		// Fetch comments for this message
@@ -575,9 +735,17 @@ func (db *appdbimpl) StartConversation(initiatorID string, title string, isGroup
 	conversationID := uuid.Must(uuid.NewV4()).String()
 
 	// Insert the new conversation
-	_, err = tx.Exec("INSERT INTO conversations (id, title, is_group) VALUES (?, ?, ?)", conversationID, title, isGroup)
+	_, err = tx.Exec("INSERT INTO conversations (id, title, is_group, updated_at) VALUES (?, ?, ?, ?)", conversationID, title, isGroup, time.Now())
 	if err != nil {
 		return "", fmt.Errorf("error creating conversation: %w", err)
+	}
+
+	// If it's a group, also insert into the groups table
+	if isGroup {
+		_, err = tx.Exec("INSERT INTO groups (id, name) VALUES (?, ?)", conversationID, title)
+		if err != nil {
+			return "", fmt.Errorf("error creating group: %w", err)
+		}
 	}
 
 	// Add all participants (including the initiator) to the conversation
@@ -595,6 +763,14 @@ func (db *appdbimpl) StartConversation(initiatorID string, title string, isGroup
 		_, err = tx.Exec("INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)", participantID, conversationID)
 		if err != nil {
 			return "", fmt.Errorf("error adding participant %s to conversation: %w", participantID, err)
+		}
+
+		// If it's a group, also add to group_members
+		if isGroup {
+			_, err = tx.Exec("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", conversationID, participantID)
+			if err != nil {
+				return "", fmt.Errorf("error adding participant %s to group: %w", participantID, err)
+			}
 		}
 	}
 

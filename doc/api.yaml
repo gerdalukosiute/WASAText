@@ -130,6 +130,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
   
   /users:
     get:
@@ -164,6 +165,7 @@ paths:
                       example: "Patric"
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
       
   /conversations:
     get:
@@ -225,6 +227,7 @@ paths:
                       description: Date and time of the last message
                       example: "2025-01-11T14:30:00Z"
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
     post:
       tags: ["conversations"]
       summary: Start a new conversation
@@ -266,6 +269,7 @@ paths:
                     example: "Tara"
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
 
   /conversations/{conversationId}:
     get:
@@ -362,6 +366,7 @@ paths:
                                 example: "👍"
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
 
   /conversations/{conversationId}/messages:
     parameters:
@@ -438,95 +443,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/ConversationNotFound" }
-    get:
-      tags: ["messages"]
-      summary: Retrieve messages from a conversation
-      description: Fetches messages from a specific conversation for the logged-in user. Messages are displayed in reverse chronological order and include details such as timestamp, content, sender's username, and status.
-      operationId: getConversationMessages
-      security:
-        - UserIdentifierAuth: []
-      parameters:
-        - name: limit
-          in: query
-          required: false
-          description: The maximum number of messages to return (for pagination)
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 50
-        - name: before
-          in: query
-          required: false
-          description: Return messages before this timestamp (for pagination)
-          schema:
-            type: string
-            format: date-time
-      responses:
-        "200":
-          description: Messages retrieved successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  messages:
-                    type: array
-                    description: List of messages in the conversation
-                    items:
-                      type: object
-                      properties:
-                        messageId:
-                          type: string
-                          description: Unique identifier of the message
-                          example: "msg67890"
-                        sender:
-                          type: string
-                          description: Username of the sender
-                          example: "Alice"
-                        messageType:
-                          type: string
-                          enum: [text, photo]
-                          description: Type of the message
-                          example: "text"
-                        content:
-                          type: string
-                          description: |-
-                            Content of the message:
-                            - For `text`, this is the actual message text.
-                            - For `photo`, this is a URL pointing to the photo.
-                          example: "Hello, how are you?"
-                        timestamp:
-                          type: string
-                          format: date-time
-                          description: Date and time when the message was sent
-                          example: "2025-01-11T14:30:00Z"
-                        status:
-                          type: string
-                          enum: [sent, received, read]
-                          description: Status of the message
-                          example: "read"
-                        reactions:
-                          type: array
-                          description: Reactions to the message
-                          items:
-                            type: object
-                            properties:
-                              username:
-                                type: string
-                                description: Username of the user who reacted
-                                example: "Bob"
-                              reaction:
-                                type: string
-                                description: Reaction emoji or text
-                                example: "👍"
-                  hasMore:
-                    type: boolean
-                    description: Indicates if there are more messages to fetch
-                    example: true
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
     
   /messages/{messageId}:
     delete:
@@ -565,6 +482,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
         
   /messages/{messageId}/forward:
     parameters:
@@ -644,7 +562,8 @@ paths:
                     example: "2025-01-11T15:00:00Z"
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "404":  { $ref: "#/components/responses/ConversationNotFound" }      
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }  
+        "500": { $ref: "#/components/responses/InternalServerError" }    
         
   /messages/{messageId}/comments:
     post:
@@ -710,6 +629,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
         
   /messages/{messageId}/comments/{commentId}:
     delete:
@@ -759,7 +679,45 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
   
+  /messages/{messageId}/status:
+    put:
+      summary: Update message status
+      description: Updates the status of a specific message
+      security:
+        - UserIdentifierAuth: []
+      parameters:
+          - name: messageId
+            in: path
+            required: true
+            description: Unique identifier of the message containing the comment
+            schema:
+              type: string
+              example: "msg123"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [delivered, read]
+              required:
+                - status
+      responses:
+        "200" : 
+          description: Successful response
+          content: 
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
   /groups:
     get:
       tags: ["groups"]
@@ -788,16 +746,9 @@ paths:
                       type: string
                       description: Name of the group
                       example: "Gathering"
-        "401":
-          description: Unauthorized - User identifier missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Unauthorized access."
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
   
   /groups/{groupId}:
     post:
@@ -860,6 +811,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
     delete:
       tags: ["groups"]
       summary: Leave a group
@@ -900,6 +852,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
 
     put:
       tags: ["groups"]
@@ -957,6 +910,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
         
     patch:
       tags: ["groups"]
@@ -1013,8 +967,27 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":  { $ref: "#/components/responses/ConversationNotFound" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
         
 components:
+  schemas: 
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        senderId:
+          type: string
+        content:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [delivered, read]
   securitySchemes:
     UserIdentifierAuth:
       type: apiKey

@@ -15,7 +15,7 @@ func (rt *_router) Handler() http.Handler {
 	rt.router.POST("/conversations", rt.withAuth(rt.handleStartConversation))
 	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
 	rt.router.POST("/conversations/:conversationId/messages", rt.withAuth(rt.handleSendMessage))
-	rt.router.GET("/conversations/:conversationId/messages", rt.withAuth(rt.handleGetMessages))
+	rt.router.PUT("/messages/:messageId/status", rt.withAuth(rt.handleUpdateMessageStatus))
 	rt.router.POST("/messages/:messageId/forward", rt.withAuth(rt.handleForwardMessage))
 	rt.router.DELETE("/messages/:messageId", rt.withAuth(rt.handleDeleteMessage))
 	rt.router.POST("/messages/:messageId/comments", rt.withAuth(rt.handleAddComment))

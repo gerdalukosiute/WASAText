@@ -19,7 +19,6 @@ type AppDatabase interface {
 	GetUserConversations(userID string) ([]Conversation, error)
 	StartConversation(initiatorID string, title string, isGroup bool, participants []string) (string, error)
 	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
-	GetMessages(conversationID string, limit int, before time.Time) ([]Message, error)
 	AddMessage(conversationID, senderID, messageType, content string) (string, error)
 	GetUserNameByID(userID string) (string, error)
 	GetComments(messageID string) ([]Comment, error)
@@ -28,12 +27,14 @@ type AppDatabase interface {
 	AddComment(messageID, userID, content string) (*Comment, error)
 	DeleteComment(messageID, commentID, userID string) error
 	GetGroupsForUser(userID string) ([]Group, error)
-	AddUserToGroup(groupID, adderID, username string, title string) error
+	AddUserToGroup(groupID, adderID, username string) error
 	LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, err error)
 	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, err error)
 	SetGroupPhoto(groupID string, userID string, newPhotoURL string) (oldPhotoURL string, updatedPhotoURL string, err error)
 	UserExists(userID string) (bool, error)
 	IsUserInConversation(userID, conversationID string) (bool, error)
+	UpdateMessageStatus(messageID, userID, newStatus string) error
+	GetMessageByID(messageID string) (*Message, error)
 	Ping() error
 }
 
@@ -55,10 +56,9 @@ type ConversationDetails struct {
 	ID           string
 	Title        string
 	IsGroup      bool
-	ProfilePhoto string
+	UpdatedAt    time.Time
 	Participants []Participant
 	Messages     []Message
-	UpdatedAt    time.Time
 }
 
 // Participant represents a user participating in a conversation
@@ -94,10 +94,15 @@ type Comment struct {
 type Conversation struct {
 	ID           string
 	Title        string
-	ProfilePhoto string
+	ProfilePhoto *string
 	IsGroup      bool
 	LastMessage  Message
-	UpdatedAt    time.Time
+}
+
+// Message status symmary
+type MessageStatus struct {
+	OverallStatus     string            `json:"overallStatus"`
+	RecipientStatuses map[string]string `json:"recipientStatuses"`
 }
 
 // Error definitions
@@ -158,20 +163,20 @@ func createTables(db *sql.DB) error {
 			FOREIGN KEY (conversation_id) REFERENCES conversations(id),
 			FOREIGN KEY (sender_id) REFERENCES users(id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS message_read_status (
+    		message_id TEXT,
+    		user_id TEXT,
+    		status TEXT,
+    		PRIMARY KEY (message_id, user_id),
+    		FOREIGN KEY (message_id) REFERENCES messages(id),
+    		FOREIGN KEY (user_id) REFERENCES users(id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS user_conversations (
 			user_id TEXT NOT NULL,
 			conversation_id TEXT NOT NULL,
 			PRIMARY KEY (user_id, conversation_id),
 			FOREIGN KEY (user_id) REFERENCES users(id),
 			FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-		)`,
-		`CREATE TABLE IF NOT EXISTS reactions (
-			message_id TEXT NOT NULL,
-			user_id TEXT NOT NULL,
-			reaction TEXT NOT NULL,
-			PRIMARY KEY (message_id, user_id),
-			FOREIGN KEY (message_id) REFERENCES messages(id),
-			FOREIGN KEY (user_id) REFERENCES users(id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS comments (
 			id TEXT PRIMARY KEY,
