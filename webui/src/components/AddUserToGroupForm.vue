@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch } from 'vue';
-import axios from 'axios';
+import api from '@/services/api.js';
 
 const props = defineProps({
   isOpen: {
@@ -50,8 +50,8 @@ const handleSubmit = async () => {
   }
 
   try {
-    const response = await axios.post(
-      `http://localhost:8080/groups/${props.groupId}`,
+    const response = await api.post(
+      `groups/${props.groupId}`,
       { username: username.value },
       {
         headers: {

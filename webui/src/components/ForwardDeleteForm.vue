@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import axios from 'axios';
+import api from '@/services/api.js';
 
 const props = defineProps({
   messageId: {
@@ -56,7 +56,7 @@ const fetchConversations = async () => {
       throw new Error('User not authenticated');
     }
 
-    const response = await axios.get('http://localhost:8080/conversations', {
+    const response = await api.get('conversations', {
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId
@@ -92,7 +92,7 @@ const handleForward = async () => {
       return;
     }
 
-    const response = await axios.post(`http://localhost:8080/messages/${props.messageId}/forward`, {
+    const response = await api.post(`messages/${props.messageId}/forward`, {
       originalMessageId: props.messageId,
       targetConversationId: selectedConversation.value
     }, {
@@ -122,7 +122,7 @@ const handleDelete = async () => {
       throw new Error('User not authenticated');
     }
 
-    const response = await axios.delete(`http://localhost:8080/messages/${props.messageId}`, {
+    const response = await api.delete(`messages/${props.messageId}`, {
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId

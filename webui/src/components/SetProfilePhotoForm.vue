@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import axios from 'axios';
+import api from '@/services/api.js';
 
 const emit = defineEmits(['photoUpdated', 'close']);
 
@@ -46,7 +46,7 @@ const updatePhoto = async () => {
   }
 
   try {
-    const response = await axios.put(`http://localhost:8080/user/${userId}`, 
+    const response = await api.put(`user/${userId}`, 
       { photoUrl: newPhotoUrl.value },
       {
         headers: {

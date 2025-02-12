@@ -1,13 +1,12 @@
 <script setup>
 import { ref, onMounted } from 'vue';
-import axios from 'axios';
 import { format } from 'date-fns';
 import ConversationWindow from '@/components/ConversationWindow.vue';
 import SetGroupPhotoForm from '@/components/SetGroupPhotoForm.vue';
 import AddUserToGroupForm from '@/components/AddUserToGroupForm.vue';
 import SetGroupNameForm from '@/components/SetGroupNameForm.vue'
 import LeaveGroupModal from '@/components/LeaveGroupModal.vue';
-
+import api from '@/services/api.js'
 
 const conversations = ref([]);
 const loading = ref(true);
@@ -31,7 +30,7 @@ const fetchConversations = async () => {
     }
     currentUserId.value = userId;
 
-    const response = await axios.get('http://localhost:8080/conversations', {
+    const response = await api.get('conversations', {
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId
@@ -79,7 +78,7 @@ const fetchConversationDetails = async (conversation) => {
 
     console.log('Fetching conversation:', conversation.id);
 
-    const response = await axios.get(`http://localhost:8080/conversations/${conversation.id}`, {
+    const response = await api.get(`conversations/${conversation.id}`, {
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId
@@ -276,7 +275,7 @@ const leaveGroup = async () => {
       throw new Error('User not authenticated');
     }
 
-    const response = await axios.delete(`http://localhost:8080/groups/${selectedGroupId.value}`, {
+    const response = await api.delete(`groups/${selectedGroupId.value}`, {
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId

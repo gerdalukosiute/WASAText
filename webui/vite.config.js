@@ -9,7 +9,7 @@ export default defineConfig({
     vue(),
   ],
   server: {
-    host: '0.0.0.0',
+    host: true,
     port: 3000, // desired port 
   },
   resolve: {
@@ -20,6 +20,7 @@ export default defineConfig({
   define: {
     __VUE_OPTIONS_API__: false,
     __VUE_PROD_DEVTOOLS__: false,
-    __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false
+    __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
+    'process.env': {}
   }
 })

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue';
-import axios from 'axios';
+import api from '@/services/api.js';
 import { useRouter } from 'vue-router';
 
 const emit = defineEmits(['close', 'groupCreated']);
@@ -46,7 +46,7 @@ const searchAndAddParticipant = async () => {
       throw new Error('User not authenticated');
     }
 
-    const response = await axios.get(`http://localhost:8080/users?q=${username}`, {
+    const response = await api.get(`users?q=${username}`, {
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId
@@ -84,8 +84,8 @@ const createGroup = async () => {
       throw new Error('User not authenticated');
     }
 
-    // Step 1: Create the conversation (group)
-    const conversationResponse = await axios.post('http://localhost:8080/conversations', {
+    // Create the conversation (group)
+    const conversationResponse = await api.post('conversations', {
       title: groupTitle.value,
       isGroup: true,
       participants: [userId]
@@ -98,9 +98,9 @@ const createGroup = async () => {
 
     const groupId = conversationResponse.data.id;
 
-    // Step 2: Add participants to the group
+    // Add participants to the group
     for (const participant of participants.value) {
-      await axios.post(`http://localhost:8080/groups/${groupId}`, {
+      await api.post(`groups/${groupId}`, {
         username: participant.name
       }, {
         headers: {

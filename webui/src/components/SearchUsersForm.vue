@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import axios from 'axios';
+import api from '@/services/api.js';
 import { useRouter } from 'vue-router';
 
 const emit = defineEmits(['close', 'conversationCreated']);
@@ -58,7 +58,7 @@ const fetchUsers = async (params = {}) => {
   }
 
   try {
-    const response = await axios.get(`http://localhost:8080/users`, {
+    const response = await api.get(`users`, {
       params: params,
       headers: {
         'Content-Type': 'application/json',
@@ -88,7 +88,7 @@ const startConversation = async (user) => {
   }
 
   try {
-    const response = await axios.post('http://localhost:8080/conversations', {
+    const response = await api.post('conversations', {
       title: user.name,
       isGroup: false,
       participants: [user.id]

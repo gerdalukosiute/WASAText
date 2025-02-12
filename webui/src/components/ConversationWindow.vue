@@ -1,10 +1,10 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import axios from 'axios';
+import { ref, onMounted, watch, nextTick } from 'vue';
 import { format } from 'date-fns';
 import Comment from '@/components/Comment.vue';
 import ForwardDeleteForm from '@/components/ForwardDeleteForm.vue';
 import MessageStatusUpdater from '@/components/MessageStatusUpdater.vue';
+import api from '@/services/api.js'
 
 const props = defineProps({
   conversationId: {
@@ -52,7 +52,7 @@ const fetchConversationDetails = async () => {
 
     console.log('Fetching conversation:', props.conversationId);
 
-    const response = await axios.get(`http://localhost:8080/conversations/${props.conversationId}`, {
+    const response = await api.get(`conversations/${props.conversationId}`, {
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId
@@ -133,7 +133,7 @@ const sendMessage = async (content, type = 'text') => {
       throw new Error('User not authenticated');
     }
 
-    const response = await axios.post(`http://localhost:8080/conversations/${props.conversationId}/messages`, {
+    const response = await api.post(`conversations/${props.conversationId}/messages`, {
       content,
       messageType: type
     }, {

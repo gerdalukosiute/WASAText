@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import axios from 'axios';
+import api from '@/services/api.js';
 
 const props = defineProps({
   currentUsername: {
@@ -51,7 +51,7 @@ const updateUsername = async () => {
   }
 
   try {
-    const response = await axios.put(`http://localhost:8080/user`, 
+    const response = await api.put(`user`, 
       { newName: newUsername.value },
       {
         headers: {
@@ -60,7 +60,7 @@ const updateUsername = async () => {
         }
       }
     );
-
+    console.log(response)
     localStorage.setItem('username', newUsername.value);
     emit('usernameUpdated', newUsername.value);
     closeUpdateUsernameModal();

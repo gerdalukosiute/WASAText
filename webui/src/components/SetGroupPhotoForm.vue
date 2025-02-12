@@ -1,6 +1,6 @@
 <script setup>
   import { ref, watch } from 'vue';
-  import axios from 'axios';
+  import api from '@/services/api.js';
   
   const props = defineProps({
     isOpen: {
@@ -40,7 +40,7 @@
   const checkGroupMembership = async () => {
     try {
       const userId = localStorage.getItem('userId');
-      const response = await axios.get(`http://localhost:8080/conversations/${props.groupId}`, {
+      const response = await api.get(`conversations/${props.groupId}`, {
         headers: {
           'Content-Type': 'application/json',
           'X-User-ID': userId
@@ -73,8 +73,8 @@
     }
   
     try {
-      const response = await axios.patch(
-        `http://localhost:8080/groups/${props.groupId}`,
+      const response = await api.patch(
+        `groups/${props.groupId}`,
         { groupPhoto: groupPhoto.value },
         {
           headers: {
