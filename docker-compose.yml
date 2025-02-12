@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  backend:
+    image: docker.io/gerdalukosiute/backend:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./shared:/shared
+  frontend:
+    image: docker.io/gerdalukosiute/frontend:latest
+    ports:
+      - "8080:80"

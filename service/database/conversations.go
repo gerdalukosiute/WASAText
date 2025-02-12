@@ -292,7 +292,7 @@ func (db *appdbimpl) DeleteMessage(messageID, userID string) (*Message, error) {
 	defer tx.Rollback() // Rollback the transaction if it's not committed
 
 	// Delete associated reactions
-	_, err = tx.Exec("DELETE FROM reactions WHERE message_id = ?", messageID)
+	_, err = tx.Exec("DELETE FROM comments WHERE message_id = ?", messageID)
 	if err != nil {
 		return nil, fmt.Errorf("error deleting reactions: %w", err)
 	}
