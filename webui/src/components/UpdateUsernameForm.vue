@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import api from '@/services/api.js';
+import api from '@/services/axios.js';
 
 const props = defineProps({
   currentUsername: {
@@ -51,7 +51,7 @@ const updateUsername = async () => {
   }
 
   try {
-    const response = await api.put(`user`, 
+    const response = await api.put(`/user`, 
       { newName: newUsername.value },
       {
         headers: {

@@ -1,10 +1,10 @@
 // src/services/api.js
 import axios from 'axios';
-import config from '@/config';
 
 // Create a pre-configured axios instance
 const api = axios.create({
-  baseURL: config.apiBaseUrl,
+  baseURL: __API_URL__,
+	timeout: 1000 * 5
 });
 
 export default api; 

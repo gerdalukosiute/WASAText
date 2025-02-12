@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import api from '@/services/api.js'
+import api from '@/services/axios.js'
 
 const username = ref('')
 const error = ref('')
@@ -46,7 +46,7 @@ async function handleSubmit(e) {
   console.log('Request body:', requestBody)
 
   try {
-    const response = await api.post('session', requestBody, {
+    const response = await api.post('/session', requestBody, {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',

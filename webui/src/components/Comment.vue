@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue';
-import api from '@/services/api.js';
+import api from '@/services/axios.js';
 
 const props = defineProps({
   messageId: {
@@ -63,7 +63,7 @@ const handleEmojiClick = async (emoji) => {
       // Delete the existing reaction
       const commentToDelete = props.comments.find(c => c.userId === currentUserId.value && c.content === emoji);
       if (commentToDelete) {
-        await api.delete(`messages/${props.messageId}/comments/${commentToDelete.id}`, {
+        await api.delete(`/messages/${props.messageId}/comments/${commentToDelete.id}`, {
           headers: {
             'Content-Type': 'application/json',
             'X-User-ID': currentUserId.value
@@ -74,7 +74,7 @@ const handleEmojiClick = async (emoji) => {
       }
     } else {
       // Add new reaction
-      const response = await api.post(`messages/${props.messageId}/comments`, {
+      const response = await api.post(`/messages/${props.messageId}/comments`, {
         content: emoji
       }, {
         headers: {

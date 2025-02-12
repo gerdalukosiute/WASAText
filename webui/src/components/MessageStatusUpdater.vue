@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue';
-import api from '@/services/api.js';
+import api from '@/services/axios.js';
 
 const props = defineProps({
   messageId: {
@@ -33,7 +33,7 @@ const updateAttempts = ref(0);
 
 const updateMessageStatus = async (newStatus) => {
   try {
-    const response = await api.put(`messages/${props.messageId}/status`, 
+    const response = await api.put(`/messages/${props.messageId}/status`, 
       { status: newStatus },
       {
         headers: {

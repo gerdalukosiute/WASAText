@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch } from 'vue';
-import api from '@/services/api.js';
+import api from '@/services/axios.js';
 
 const props = defineProps({
   isOpen: {
@@ -51,7 +51,7 @@ const handleSubmit = async () => {
 
   try {
     const response = await api.post(
-      `groups/${props.groupId}`,
+      `/groups/${props.groupId}`,
       { username: username.value },
       {
         headers: {
