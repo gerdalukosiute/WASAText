@@ -149,7 +149,8 @@ func createTables(db *sql.DB) error {
 			id TEXT PRIMARY KEY,
 			title TEXT,
 			profile_photo TEXT,
-			is_group BOOLEAN NOT NULL
+			is_group BOOLEAN NOT NULL,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMPs
 		)`,
 		`CREATE TABLE IF NOT EXISTS messages (
 			id TEXT PRIMARY KEY,
