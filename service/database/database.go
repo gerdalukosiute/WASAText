@@ -115,6 +115,10 @@ var (
 	ErrGroupNotFound        = errors.New("group not found")
 	ErrInvalidGroupName     = errors.New("invalid group name")
 	ErrUserAlreadyInGroup   = fmt.Errorf("user is already a member of the group")
+    // User login errors
+	ErrInvalidNameLength = errors.New("invalid name length")
+	ErrInvalidNameFormat = errors.New("invalid name format")
+	ErrNameAlreadyTaken  = errors.New("name already taken")
 )
 
 type appdbimpl struct {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/julienschmidt/httprouter"
 )
@@ -29,5 +30,9 @@ func (rt *_router) withAuth(handler authenticatedHandler) httprouter.Handle {
 func sendJSONError(w http.ResponseWriter, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+	errResp := map[string]string{"error": message}
+	if err := json.NewEncoder(w).Encode(errResp); err != nil {
+		// If we can't encode the error response, log it and write a plain text error
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }

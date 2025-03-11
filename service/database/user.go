@@ -2,33 +2,85 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"math/rand"
+	"regexp"
+	"strings"
+	"time"
 
-	"github.com/gofrs/uuid"
 	"github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 )
 
 // GetOrCreateUser retrieves a user by name or creates a new one if it doesn't exist
 func (db *appdbimpl) GetOrCreateUser(name string) (string, error) {
-	// Validate username length before database operations
+	// Validate username length and pattern before database operations
 	if len(name) < 3 || len(name) > 16 {
-		return "", fmt.Errorf("invalid username length")
+		return "", ErrInvalidNameLength
 	}
 
+	namePattern := regexp.MustCompile(`^[a-zA-Z0-9_-]{3,16}$`)
+	if !namePattern.MatchString(name) {
+		return "", ErrInvalidNameFormat
+	}
+
+	// First, try to get the user
 	var userID string
 	err := db.c.QueryRow("SELECT id FROM users WHERE name = ?", name).Scan(&userID)
-	if err == sql.ErrNoRows {
-		// User doesn't exist, create a new one
-		userID = uuid.Must(uuid.NewV4()).String()
-		_, err = db.c.Exec("INSERT INTO users (id, name) VALUES (?, ?)", userID, name)
-		if err != nil {
-			return "", fmt.Errorf("error creating user: %w", err)
-		}
-	} else if err != nil {
+	if err == nil {
+		// User exists, return the ID
+		return userID, nil
+	}
+	
+	// If error is not "no rows", return the error
+	if !errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("error querying user: %w", err)
 	}
+	
+	// User doesn't exist, create a new one with a 12-character identifier
+	userID = generateUserID()
+	
+	// Insert the new user
+	_, err = db.c.Exec("INSERT INTO users (id, name) VALUES (?, ?)", userID, name)
+	if err != nil {
+		// Check for unique constraint violation
+		var sqliteErr sqlite3.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique {
+			// Another concurrent request might have created the user, try to get it
+			err = db.c.QueryRow("SELECT id FROM users WHERE name = ?", name).Scan(&userID)
+			if err == nil {
+				return userID, nil
+			}
+			return "", ErrNameAlreadyTaken
+		}
+		return "", fmt.Errorf("error creating user: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"name": name,
+		"id":   userID,
+	}).Info("Created new user")
+
 	return userID, nil
+}
+
+// generateUserID creates a 12-character identifier following the pattern ^[a-zA-Z0-9_-]{12}$
+func generateUserID() string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+	const idLength = 12
+	
+	// Initialize random source with current time
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	
+	var sb strings.Builder
+	sb.Grow(idLength)
+	
+	for i := 0; i < idLength; i++ {
+		sb.WriteByte(charset[r.Intn(len(charset))])
+	}
+	
+	return sb.String()
 }
 
 func (db *appdbimpl) UpdateUsername(userID string, newName string) error {
