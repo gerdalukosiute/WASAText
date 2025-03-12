@@ -107,11 +107,13 @@ type MessageStatus struct {
 
 // Error definitions
 var (
-	ErrUserNotFound         = errors.New("user not found")
-	ErrDuplicateUsername    = errors.New("username already taken")
+	// Username update error
+	ErrUserNotFound         = errors.New("user not found") 
+	ErrDuplicateUsername    = errors.New("username already taken") 
+    ErrUnauthorized         = errors.New("user unauthorized")
+
 	ErrConversationNotFound = errors.New("conversation not found")
 	ErrMessageNotFound      = errors.New("message not found")
-	ErrUnauthorized         = errors.New("user unauthorized")
 	ErrGroupNotFound        = errors.New("group not found")
 	ErrInvalidGroupName     = errors.New("invalid group name")
 	ErrUserAlreadyInGroup   = fmt.Errorf("user is already a member of the group")

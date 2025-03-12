@@ -84,27 +84,40 @@ func generateUserID() string {
 }
 
 func (db *appdbimpl) UpdateUsername(userID string, newName string) error {
-	// First check if the user exists
-	var exists bool
-	err := db.c.QueryRow("SELECT 1 FROM users WHERE id = ?", userID).Scan(&exists)
-	if err == sql.ErrNoRows {
-		return ErrUserNotFound
-	}
-	if err != nil {
-		return err
-	}
+    // First check if the user exists
+    var exists bool
+    err := db.c.QueryRow("SELECT 1 FROM users WHERE id = ?", userID).Scan(&exists)
+    if errors.Is(err, sql.ErrNoRows) {
+        return ErrUserNotFound
+    }
+    if err != nil {
+        return err
+    }
 
-	// Try to update the username
-	_, err = db.c.Exec("UPDATE users SET name = ? WHERE id = ?", newName, userID)
-	if err != nil {
-		// Check for unique constraint violation
-		if sqliteErr, ok := err.(sqlite3.Error); ok && sqliteErr.Code == sqlite3.ErrConstraint {
-			return ErrDuplicateUsername
-		}
-		return err
-	}
+    // Check if the new username is already taken by another user
+    var existingUserID string
+    err = db.c.QueryRow("SELECT id FROM users WHERE name = ?", newName).Scan(&existingUserID)
+    if err != nil && !errors.Is(err, sql.ErrNoRows) {
+        return err
+    }
+    
+    // If a user with this name exists and is not the current user
+    if err == nil && existingUserID != userID {
+        return ErrDuplicateUsername
+    }
 
-	return nil
+    // Try to update the username
+    _, err = db.c.Exec("UPDATE users SET name = ? WHERE id = ?", newName, userID)
+    if err != nil {
+        // Use errors.As instead of type assertion for checking
+        var sqliteErr sqlite3.Error
+        if errors.As(err, &sqliteErr) && sqliteErr.Code == sqlite3.ErrConstraint {
+            return ErrDuplicateUsername
+        }
+        return err
+    }
+
+    return nil
 }
 
 // UpdateUserPhoto updates the photo URL for a given user ID
