@@ -14,7 +14,7 @@ import (
 type AppDatabase interface {
 	GetOrCreateUser(name string) (string, error)
 	UpdateUsername(userID string, newName string) error
-	SearchUsers(query string) ([]User, error)
+	SearchUsers(query string) ([]User, int, error)
 	UpdateUserPhoto(userID string, photoID string) (string, error)
 	GetUserConversations(userID string) ([]Conversation, error)
 	StartConversation(initiatorID string, title string, isGroup bool, participants []string) (string, error)

@@ -9,8 +9,8 @@ func (rt *_router) Handler() http.Handler {
 	// Register routes
 	rt.router.POST("/session", rt.wrap(rt.handleLogin)) // updated
 	rt.router.PUT("/user", rt.withAuth(rt.handleUpdateUsername)) // updated
-	rt.router.GET("/users", rt.withAuth(rt.handleSearchUsers)) // after photo update
-	rt.router.PUT("/user/:userId", rt.withAuth(rt.handleUpdateUserPhoto))
+	rt.router.GET("/users", rt.withAuth(rt.handleSearchUsers)) // updated
+	rt.router.PUT("/user/:userId", rt.withAuth(rt.handleUpdateUserPhoto)) // updated
 	rt.router.GET("/conversations", rt.withAuth(rt.handleGetConversations))
 	rt.router.POST("/conversations", rt.withAuth(rt.handleStartConversation))
 	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
