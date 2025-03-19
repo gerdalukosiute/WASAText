@@ -419,7 +419,7 @@ paths:
             schema:
               type: object
               description: |
-                Details for ew conversation request
+                Details for new conversation request
               properties:
                 recipient:
                   type: string
@@ -440,14 +440,14 @@ paths:
               schema:
                 type: object
                 description: |
-                  New conversation response
+                  Conversation details
                 properties:
                   conversations:
                     type: array
                     description: |
-                      List containing newly created conversation
-                    minItems: 1
-                    maxItems: 1
+                      List of user conversations
+                    minItems: 0
+                    maxItems: 10000
                     items:
                       type: object
                       description: |
@@ -464,7 +464,7 @@ paths:
                         title:
                           type: string
                           description: |
-                            Username of recipient
+                            Username of recipient or group name
                           pattern: '^[a-zA-Z0-9_-]{3,16}$'
                           minLength: 3
                           maxLength: 16
@@ -488,12 +488,12 @@ paths:
                         isGroup:
                           type: boolean
                           description: |
-                            Indicates if the conversation is a group (false for new one-on-one)
+                            Indicates if the conversation is a group
                           example: false
                         lastMessage:
                           type: object
                           description: |
-                            Details about the last message (empty for new conversations)
+                            Details about the last message
                           properties:
                             type:
                               type: string
@@ -523,10 +523,10 @@ paths:
                   total:
                     type: integer
                     description: |
-                      Total number of conversations (1 for new)
-                    minimum: 1
-                    maximum: 1
-                    example: 1
+                      Total number of conversations
+                    minimum: 0
+                    maximum: 10000
+                    example: 5
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
@@ -813,7 +813,7 @@ paths:
                   example: "Hi, how are you doing today?"
               required:
                 - content
-                - messageType
+                - type
       responses:
         "201":
           description: |
