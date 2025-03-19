@@ -61,11 +61,16 @@ type CommentResponse struct {
 
 // ConversationResponse represents the API response for a conversation summary
 type ConversationResponse struct {
-	ID           string          `json:"conversationId"`
-	Title        string          `json:"title"`
-	ProfilePhoto *string         `json:"profilePhoto"`
-	IsGroup      bool            `json:"isGroup"`
-	LastMessage  MessageResponse `json:"lastMessage"`
+	ID             string    `json:"conversationId"`
+	Title          string    `json:"title"`
+	CreatedAt      time.Time `json:"createdAt"`
+	ProfilePhotoID *string   `json:"profilePhotoId,omitempty"`
+	IsGroup        bool      `json:"isGroup"`
+	LastMessage    struct {
+		Type      string    `json:"type"`
+		Content   string    `json:"content"`
+		Timestamp time.Time `json:"timestamp"`
+	} `json:"lastMessage"`
 }
 
 func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
@@ -83,38 +88,53 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	conversations, err := rt.db.GetUserConversations(userID)
+	conversations, total, err := rt.db.GetUserConversations(userID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to get user conversations")
 		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	response := make([]ConversationResponse, len(conversations))
+	// Prepare the response according to API spec
+	conversationResponses := make([]ConversationResponse, len(conversations))
 	for i, conv := range conversations {
-		response[i] = ConversationResponse{
-			ID:           conv.ID,
-			Title:        conv.Title,
-			ProfilePhoto: conv.ProfilePhoto,
-			IsGroup:      conv.IsGroup,
-			LastMessage: MessageResponse{
-				ID:        conv.LastMessage.ID,
-				SenderID:  conv.LastMessage.SenderID,
-				Sender:    conv.LastMessage.Sender,
+		conversationResponses[i] = ConversationResponse{
+			ID:             conv.ID,
+			Title:          conv.Title,
+			CreatedAt:      conv.CreatedAt,
+			ProfilePhotoID: conv.ProfilePhoto,
+			IsGroup:        conv.IsGroup,
+			LastMessage: struct {
+				Type      string    `json:"type"`
+				Content   string    `json:"content"`
+				Timestamp time.Time `json:"timestamp"`
+			}{
 				Type:      conv.LastMessage.Type,
 				Content:   conv.LastMessage.Content,
-				Icon:      conv.LastMessage.Icon,
 				Timestamp: conv.LastMessage.Timestamp,
-				Status:    conv.LastMessage.Status,
-				Comments:  []CommentResponse{}, // Assuming comments are not fetched in this query
 			},
 		}
 	}
 
-	ctx.Logger.WithField("conversationCount", len(response)).Info("Retrieved user conversations")
+	// Create the response object according to API spec
+	response := struct {
+		Conversations []ConversationResponse `json:"conversations"`
+		Total         int                    `json:"total"`
+	}{
+		Conversations: conversationResponses,
+		Total:         total,
+	}
+
+	ctx.Logger.WithFields(logrus.Fields{
+		"conversationCount": len(conversationResponses),
+		"totalCount":        total,
+	}).Info("Retrieved user conversations")
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to encode JSON response")
+		return
+	}
 }
 
 func convertMessages(dbMessages []database.Message) []MessageResponse {

@@ -16,7 +16,7 @@ type AppDatabase interface {
 	UpdateUsername(userID string, newName string) error
 	SearchUsers(query string) ([]User, int, error)
 	UpdateUserPhoto(userID string, photoID string) (string, error)
-	GetUserConversations(userID string) ([]Conversation, error)
+	GetUserConversations(userID string) ([]Conversation, int, error)
 	StartConversation(initiatorID string, title string, isGroup bool, participants []string) (string, error)
 	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
 	AddMessage(conversationID, senderID, messageType, content string) (string, error)
@@ -94,9 +94,14 @@ type Comment struct {
 type Conversation struct {
 	ID           string
 	Title        string
+	CreatedAt    time.Time
 	ProfilePhoto *string
 	IsGroup      bool
-	LastMessage  Message
+	LastMessage  struct {
+		Type      string
+		Content   string
+		Timestamp time.Time
+	}
 }
 
 // Message status symmary

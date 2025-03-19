@@ -11,7 +11,8 @@ func (rt *_router) Handler() http.Handler {
 	rt.router.PUT("/user", rt.withAuth(rt.handleUpdateUsername)) // updated
 	rt.router.GET("/users", rt.withAuth(rt.handleSearchUsers)) // updated
 	rt.router.PUT("/user/:userId", rt.withAuth(rt.handleUpdateUserPhoto)) // updated
-	rt.router.GET("/conversations", rt.withAuth(rt.handleGetConversations))
+	rt.router.GET("/conversations", rt.withAuth(rt.handleGetConversations))  
+	// works with current, needs to be retested after some convos present
 	rt.router.POST("/conversations", rt.withAuth(rt.handleStartConversation))
 	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
 	rt.router.POST("/conversations/:conversationId/messages", rt.withAuth(rt.handleSendMessage))

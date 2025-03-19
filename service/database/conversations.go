@@ -10,95 +10,120 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (db *appdbimpl) GetUserConversations(userID string) ([]Conversation, error) {
+// Database operation to retrieve user conversations
+func (db *appdbimpl) GetUserConversations(userID string) ([]Conversation, int, error) {
 	logrus.WithField("userID", userID).Info("Getting user conversations")
+	
+	// First, get the total count of conversations
+	countQuery := `
+	SELECT COUNT(DISTINCT c.id)
+	FROM users u
+	JOIN user_conversations uc ON u.id = uc.user_id
+	JOIN conversations c ON uc.conversation_id = c.id
+	WHERE u.id = ?
+	`
+	
+	var total int
+	err := db.c.QueryRow(countQuery, userID).Scan(&total)
+	if err != nil {
+		logrus.WithError(err).Error("Error counting user conversations")
+		return nil, 0, fmt.Errorf("error counting user conversations: %w", err)
+	}
+	
+	// Now get the conversations with details
 	query := `
-    SELECT c.id, c.title, c.is_group,
-           CASE 
-               WHEN c.is_group = 0 THEN (
-                   SELECT u.name 
-                   FROM users u 
-                   JOIN user_conversations uc ON u.id = uc.user_id 
-                   WHERE uc.conversation_id = c.id AND u.id != ?
-               )
-               ELSE c.title
-           END as display_title,
-           CASE 
-               WHEN c.is_group = 0 THEN (
-                   SELECT u.photo_url 
-                   FROM users u 
-                   JOIN user_conversations uc ON u.id = uc.user_id 
-                   WHERE uc.conversation_id = c.id AND u.id != ?
-               )
-               ELSE c.profile_photo
-           END as display_photo,
-           m.id as message_id, m.sender_id, u_sender.name as sender_name, m.type, m.content, m.icon, m.created_at, m.status
-    FROM users u
-    JOIN user_conversations uc ON u.id = uc.user_id
-    JOIN conversations c ON uc.conversation_id = c.id
-    LEFT JOIN (
-        SELECT m1.*
-        FROM messages m1
-        INNER JOIN (
-            SELECT conversation_id, MAX(created_at) as max_created_at
-            FROM messages
-            GROUP BY conversation_id
-        ) m2 ON m1.conversation_id = m2.conversation_id AND m1.created_at = m2.max_created_at
-    ) m ON c.id = m.conversation_id
-    LEFT JOIN users u_sender ON m.sender_id = u_sender.id
-    WHERE u.id = ?
-    ORDER BY m.created_at DESC NULLS LAST
-    `
+	SELECT c.id, c.title, c.is_group, c.updated_at,
+		   CASE
+			   WHEN c.is_group = 0 THEN (
+				   SELECT u.name
+				   FROM users u
+				   JOIN user_conversations uc ON u.id = uc.user_id
+				   WHERE uc.conversation_id = c.id AND u.id != ?
+			   )
+			   ELSE c.title
+		   END as display_title,
+		   CASE
+			   WHEN c.is_group = 0 THEN (
+				   SELECT u.photo_id
+				   FROM users u
+				   JOIN user_conversations uc ON u.id = uc.user_id
+				   WHERE uc.conversation_id = c.id AND u.id != ?
+			   )
+			   ELSE c.profile_photo
+		   END as display_photo,
+		   m.type, m.content, m.created_at as message_timestamp
+	FROM users u
+	JOIN user_conversations uc ON u.id = uc.user_id
+	JOIN conversations c ON uc.conversation_id = c.id
+	LEFT JOIN (
+		SELECT m1.*
+		FROM messages m1
+		INNER JOIN (
+			SELECT conversation_id, MAX(created_at) as max_created_at
+			FROM messages
+			GROUP BY conversation_id
+		) m2 ON m1.conversation_id = m2.conversation_id AND m1.created_at = m2.max_created_at
+	) m ON c.id = m.conversation_id
+	WHERE u.id = ?
+	ORDER BY COALESCE(m.created_at, c.updated_at) DESC
+	LIMIT 10000
+	`
 
 	rows, err := db.c.Query(query, userID, userID, userID)
 	if err != nil {
 		logrus.WithError(err).Error("Error querying user conversations")
-		return nil, fmt.Errorf("error querying user conversations: %w", err)
+		return nil, 0, fmt.Errorf("error querying user conversations: %w", err)
 	}
 	defer rows.Close()
 
 	var conversations []Conversation
 	for rows.Next() {
 		var conv Conversation
-		var displayTitle, displayPhoto, messageID, senderID, senderName, messageType, messageContent, messageIcon, messageStatus sql.NullString
-		var messageCreatedAt sql.NullTime
+		var displayTitle, displayPhoto, messageType, messageContent sql.NullString
+		var messageTimestamp, conversationCreatedAt sql.NullTime
 
 		err := rows.Scan(
 			&conv.ID,
 			&conv.Title,
 			&conv.IsGroup,
+			&conversationCreatedAt,
 			&displayTitle,
 			&displayPhoto,
-			&messageID,
-			&senderID,
-			&senderName,
 			&messageType,
 			&messageContent,
-			&messageIcon,
-			&messageCreatedAt,
-			&messageStatus,
+			&messageTimestamp,
 		)
 		if err != nil {
 			logrus.WithError(err).Error("Error scanning conversation row")
-			return nil, fmt.Errorf("error scanning conversation row: %w", err)
+			return nil, 0, fmt.Errorf("error scanning conversation row: %w", err)
 		}
 
-		conv.Title = displayTitle.String
+		// Use the display title from the query
+		if displayTitle.Valid {
+			conv.Title = displayTitle.String
+		}
+		
+		// Set the profile photo
 		if displayPhoto.Valid {
 			conv.ProfilePhoto = &displayPhoto.String
 		}
-
-		conv.LastMessage = Message{
-			ID:       messageID.String,
-			SenderID: senderID.String,
-			Sender:   senderName.String,
-			Type:     messageType.String,
-			Content:  messageContent.String,
-			Icon:     messageIcon.String,
-			Status:   messageStatus.String,
+		
+		// Set the creation time
+		if conversationCreatedAt.Valid {
+			conv.CreatedAt = conversationCreatedAt.Time
 		}
-		if messageCreatedAt.Valid {
-			conv.LastMessage.Timestamp = messageCreatedAt.Time
+
+		// Set the last message details
+		conv.LastMessage = struct {
+			Type      string
+			Content   string
+			Timestamp time.Time
+		}{
+			Type:    messageType.String,
+			Content: messageContent.String,
+		}
+		if messageTimestamp.Valid {
+			conv.LastMessage.Timestamp = messageTimestamp.Time
 		}
 
 		conversations = append(conversations, conv)
@@ -106,15 +131,16 @@ func (db *appdbimpl) GetUserConversations(userID string) ([]Conversation, error)
 
 	if err := rows.Err(); err != nil {
 		logrus.WithError(err).Error("Error iterating conversation rows")
-		return nil, fmt.Errorf("error iterating conversation rows: %w", err)
+		return nil, 0, fmt.Errorf("error iterating conversation rows: %w", err)
 	}
 
 	logrus.WithFields(logrus.Fields{
 		"userID":            userID,
 		"conversationCount": len(conversations),
+		"totalCount":        total,
 	}).Info("Retrieved user conversations")
 
-	return conversations, nil
+	return conversations, total, nil
 }
 
 // AddMessage adds a new message to a conversation and returns the message ID
