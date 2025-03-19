@@ -120,42 +120,70 @@ func (db *appdbimpl) UpdateUsername(userID string, newName string) error {
     return nil
 }
 
-// UpdateUserPhoto updates the photo URL for a given user ID
-func (db *appdbimpl) UpdateUserPhoto(userID string, photoURL string) (string, error) {
+// UpdateUserPhoto updates the photo ID for a given user ID
+func (db *appdbimpl) UpdateUserPhoto(userID string, photoID string) (string, error) {
 	logrus.WithFields(logrus.Fields{
-		"userID":   userID,
-		"photoURL": photoURL,
+		"userID":  userID,
+		"photoID": photoID,
 	}).Info("Updating user photo")
 
-	var oldPhotoURL sql.NullString
-	err := db.c.QueryRow("SELECT photo_url FROM users WHERE id = ?", userID).Scan(&oldPhotoURL)
-	if err == sql.ErrNoRows {
-		logrus.WithField("userID", userID).Error("User not found")
-		return "", ErrUserNotFound
-	}
+	// Start a transaction
+	tx, err := db.c.Begin()
 	if err != nil {
+		return "", fmt.Errorf("error starting transaction: %w", err)
+	}
+
+	// Get the old photo ID
+	var oldPhotoID sql.NullString
+	err = tx.QueryRow("SELECT photo_id FROM users WHERE id = ?", userID).Scan(&oldPhotoID)
+	if err != nil {
+		// Rollback the transaction and check for errors
+		rollbackErr := tx.Rollback()
+		if rollbackErr != nil {
+			logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+			return "", fmt.Errorf("error rolling back transaction: %w (original error: %w)", rollbackErr, err)
+		}
+
+		if errors.Is(err, sql.ErrNoRows) {
+			logrus.WithField("userID", userID).Error("User not found")
+			return "", ErrUserNotFound
+		}
 		logrus.WithError(err).Error("Error querying user")
-		return "", err
+		return "", fmt.Errorf("error querying user: %w", err)
 	}
 
-	_, err = db.c.Exec("UPDATE users SET photo_url = ? WHERE id = ?", photoURL, userID)
+	// Update the photo ID
+	_, err = tx.Exec("UPDATE users SET photo_id = ? WHERE id = ?", photoID, userID)
 	if err != nil {
+		// Rollback the transaction and check for errors
+		rollbackErr := tx.Rollback()
+		if rollbackErr != nil {
+			logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+			return "", fmt.Errorf("error rolling back transaction: %w (original error: %w)", rollbackErr, err)
+		}
+
 		logrus.WithError(err).Error("Error updating user photo")
-		return "", err
+		return "", fmt.Errorf("error updating user photo: %w", err)
 	}
 
-	var oldPhotoURLString string
-	if oldPhotoURL.Valid {
-		oldPhotoURLString = oldPhotoURL.String
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		logrus.WithError(err).Error("Error committing transaction")
+		return "", fmt.Errorf("error committing transaction: %w", err)
+	}
+
+	var oldPhotoIDString string
+	if oldPhotoID.Valid {
+		oldPhotoIDString = oldPhotoID.String
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"userID":      userID,
-		"oldPhotoURL": oldPhotoURLString,
-		"newPhotoURL": photoURL,
+		"userID":     userID,
+		"oldPhotoID": oldPhotoIDString,
+		"newPhotoID": photoID,
 	}).Info("User photo updated successfully")
 
-	return oldPhotoURLString, nil
+	return oldPhotoIDString, nil
 }
 
 // GetUserNameByID retrieves a user's name by their ID

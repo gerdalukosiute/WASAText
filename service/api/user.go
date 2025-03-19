@@ -3,9 +3,15 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"regexp"
 	"errors"
+	"fmt"
+	"math/rand"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/gerdalukosiute/WASAText/service/database"
@@ -112,18 +118,7 @@ func (rt *_router) handleUpdateUsername(w http.ResponseWriter, r *http.Request, 
 	}
  } 
 
-// updatePhotoRequest represents the request body for updating user's photo
-type updatePhotoRequest struct {
-	PhotoURL string `json:"photoUrl"`
-}
-
-// updatePhotoResponse represents the response body for updating user's photo
-type updatePhotoResponse struct {
-	UserID      string `json:"userId"`
-	OldPhotoURL string `json:"oldPhotoUrl"`
-	NewPhotoURL string `json:"newPhotoUrl"`
-}
-
+// handleUpdateUserPhoto handles PUT requests to /user/{userId} for updating profile photos
 func (rt *_router) handleUpdateUserPhoto(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	ctx.Logger.WithField("userID", userID).Info("Handling update user photo request")
 
@@ -138,34 +133,79 @@ func (rt *_router) handleUpdateUserPhoto(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	var req updatePhotoRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		ctx.Logger.WithError(err).Error("Failed to decode request body")
-		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
+	// Validate userId format according to API spec
+	if !isValidUserID(requestedUserID) {
+		ctx.Logger.WithField("userId", requestedUserID).Warn("Invalid user ID format")
+		sendJSONError(w, "Invalid user ID format", http.StatusBadRequest)
 		return
 	}
 
-	// Validate the photo URL
-	if req.PhotoURL == "" {
-		ctx.Logger.Warn("Empty photo URL provided")
-		sendJSONError(w, "Photo URL cannot be empty", http.StatusBadRequest)
+	// Limit the file size to 5MB (5242880 bytes)
+	r.Body = http.MaxBytesReader(w, r.Body, 5242880)
+
+	// Parse the multipart form
+	if err := r.ParseMultipartForm(5242880); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to parse multipart form")
+		if strings.Contains(err.Error(), "request body too large") {
+			sendJSONError(w, "File size exceeds the 5MB limit", http.StatusRequestEntityTooLarge)
+		} else {
+			sendJSONError(w, "Failed to parse form data", http.StatusBadRequest)
+		}
 		return
 	}
 
-	if _, err := url.ParseRequestURI(req.PhotoURL); err != nil {
-		ctx.Logger.WithError(err).Warn("Invalid photo URL provided")
-		sendJSONError(w, "Invalid photo URL", http.StatusBadRequest)
+	// Get the file from the form
+	file, header, err := r.FormFile("photo")
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to get file from form")
+		sendJSONError(w, "No file provided or invalid file field", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Validate file type
+	contentType := header.Header.Get("Content-Type")
+	if !isValidImageType(contentType) {
+		ctx.Logger.WithField("contentType", contentType).Warn("Invalid file type")
+		sendJSONError(w, "Unsupported media type. Only JPEG, PNG, and GIF are allowed", http.StatusUnsupportedMediaType)
 		return
 	}
 
-	oldPhotoURL, err := rt.db.UpdateUserPhoto(userID, req.PhotoURL)
+	// Read the file data
+	fileData, err := io.ReadAll(file)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to read file data")
+		sendJSONError(w, "Failed to read file data", http.StatusInternalServerError)
+		return
+	}
+
+	// Check minimum file size (100 bytes)
+	if len(fileData) < 100 {
+		ctx.Logger.WithField("fileSize", len(fileData)).Warn("File too small")
+		sendJSONError(w, "File too small. Minimum size is 100 bytes", http.StatusBadRequest)
+		return
+	}
+
+	// Generate a unique photo ID that matches the required pattern
+	// Pattern: ^[a-zA-Z0-9_-]{10,30}$
+	photoID := generatePhotoID(userID)
+
+	// Save the file data
+	if err := savePhotoData(photoID, fileData, contentType); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to save photo data")
+		sendJSONError(w, "Failed to save photo", http.StatusInternalServerError)
+		return
+	}
+
+	// Update the user's photo URL in the database
+	oldPhotoID, err := rt.db.UpdateUserPhoto(userID, photoID)
 	if err != nil {
 		ctx.Logger.WithFields(logrus.Fields{
-			"error":    err,
-			"userID":   userID,
-			"photoURL": req.PhotoURL,
+			"error":   err,
+			"userID":  userID,
+			"photoID": photoID,
 		}).Error("Failed to update user photo")
-		if err == database.ErrUserNotFound {
+		if errors.Is(err, database.ErrUserNotFound) {
 			sendJSONError(w, "User not found", http.StatusNotFound)
 		} else {
 			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
@@ -173,19 +213,111 @@ func (rt *_router) handleUpdateUserPhoto(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
+	// Prepare the response according to API spec
+	type updatePhotoResponse struct {
+		UserID     string `json:"userId"`
+		OldPhotoID string `json:"oldPhotoId,omitempty"`
+		NewPhotoID string `json:"newPhotoId"`
+	}
+
 	resp := updatePhotoResponse{
-		UserID:      userID,
-		OldPhotoURL: oldPhotoURL,
-		NewPhotoURL: req.PhotoURL,
+		UserID:     userID,
+		NewPhotoID: photoID,
+	}
+
+	// Only include oldPhotoId if there was an old photo
+	if oldPhotoID != "" {
+		resp.OldPhotoID = oldPhotoID
 	}
 
 	ctx.Logger.WithFields(logrus.Fields{
-		"userID":      userID,
-		"oldPhotoURL": oldPhotoURL,
-		"newPhotoURL": req.PhotoURL,
+		"userID":     userID,
+		"oldPhotoID": oldPhotoID,
+		"newPhotoID": photoID,
 	}).Info("User photo updated successfully")
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to encode JSON response")
+		return
+	}
+}
+
+// Helper functions
+
+// isValidUserID checks if the user ID matches the required pattern
+// Pattern: ^[a-zA-Z0-9_-]{12}$
+func isValidUserID(userID string) bool {
+	if len(userID) != 12 {
+		return false
+	}
+
+	for _, char := range userID {
+		if !((char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') ||
+			char == '_' || char == '-') {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isValidImageType checks if the content type is a valid image type
+func isValidImageType(contentType string) bool {
+	validTypes := map[string]bool{
+		"image/jpeg": true,
+		"image/png":  true,
+		"image/gif":  true,
+	}
+	return validTypes[contentType]
+}
+
+// generatePhotoID generates a unique photo ID that matches the required pattern
+// Pattern: ^[a-zA-Z0-9_-]{10,30}$
+func generatePhotoID(userID string) string {
+	// Create a timestamp-based ID with a random component
+	timestamp := time.Now().UnixNano()
+	randomPart := rand.Intn(1000000) // Add some randomness
+
+	// Format: photo_[first 4 chars of userID]_[timestamp]_[random]
+	// This ensures the ID is unique and matches the pattern
+	photoID := fmt.Sprintf("photo_%s_%d_%d", userID[:4], timestamp, randomPart)
+
+	// Ensure the ID is within the length limits (10-30 chars)
+	if len(photoID) > 30 {
+		photoID = photoID[:30]
+	}
+
+	return photoID
+}
+
+// savePhotoData saves the photo data to storage
+func savePhotoData(photoID string, data []byte, contentType string) error {
+	// Determine file extension based on content type
+	var ext string
+	switch contentType {
+	case "image/jpeg":
+		ext = ".jpg"
+	case "image/png":
+		ext = ".png"
+	case "image/gif":
+		ext = ".gif"
+	default:
+		return fmt.Errorf("unsupported content type: %s", contentType)
+	}
+
+	// Create the uploads directory if it doesn't exist
+	if err := os.MkdirAll("uploads", 0755); err != nil {
+		return fmt.Errorf("failed to create uploads directory: %w", err)
+	}
+
+	// Save the file
+	filePath := filepath.Join("uploads", photoID+ext)
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
 }

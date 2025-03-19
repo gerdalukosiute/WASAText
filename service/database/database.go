@@ -15,7 +15,7 @@ type AppDatabase interface {
 	GetOrCreateUser(name string) (string, error)
 	UpdateUsername(userID string, newName string) error
 	SearchUsers(query string) ([]User, error)
-	UpdateUserPhoto(userID string, photoURL string) (string, error)
+	UpdateUserPhoto(userID string, photoID string) (string, error)
 	GetUserConversations(userID string) ([]Conversation, error)
 	StartConversation(initiatorID string, title string, isGroup bool, participants []string) (string, error)
 	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
@@ -42,7 +42,7 @@ type AppDatabase interface {
 type User struct {
 	ID       string
 	Name     string
-	PhotoURL string
+	PhotoID  string
 }
 
 // Group structure representation
@@ -149,7 +149,7 @@ func createTables(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS users (
 			id TEXT PRIMARY KEY,
 			name TEXT UNIQUE NOT NULL,
-			photo_url TEXT
+			photo_id TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS conversations (
 			id TEXT PRIMARY KEY,
