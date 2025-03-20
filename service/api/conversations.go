@@ -142,6 +142,7 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// Updated
 func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	ctx.Logger.WithField("userID", userID).Info("Handling start conversation request")
 
