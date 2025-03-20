@@ -21,9 +21,11 @@ type AppDatabase interface {
 	StartConversation(initiatorID string, recipientIDs []string, title string, isGroup bool) (string, error)
 	GetExistingConversation(userID1, userID2 string) (string, bool, error)
 	GenerateConversationID() (string, error)
-	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
 	AddMessage(conversationID, senderID, messageType, content string) (string, error)
+	IsUserInConversation(userID, conversationID string) (bool, error)
 	GetUserNameByID(userID string) (string, error)
+	GenerateMessageID() (string, error) 
+	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
 	GetComments(messageID string) ([]Comment, error)
 	ForwardMessage(originalMessageID, targetConversationID, userID string) (*Message, error)
 	DeleteMessage(messageID, userID string) (*Message, error)
@@ -35,7 +37,6 @@ type AppDatabase interface {
 	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, err error)
 	SetGroupPhoto(groupID string, userID string, newPhotoURL string) (oldPhotoURL string, updatedPhotoURL string, err error)
 	UserExists(userID string) (bool, error)
-	IsUserInConversation(userID, conversationID string) (bool, error)
 	UpdateMessageStatus(messageID, userID, newStatus string) error
 	GetMessageByID(messageID string) (*Message, error)
 	Ping() error
@@ -115,12 +116,12 @@ type MessageStatus struct {
 
 // Error definitions
 var (
-	// Username update error
+	// Current used in users, user, conversations
 	ErrUserNotFound         = errors.New("user not found") 
 	ErrDuplicateUsername    = errors.New("username already taken") 
     ErrUnauthorized         = errors.New("user unauthorized")
-
 	ErrConversationNotFound = errors.New("conversation not found")
+
 	ErrMessageNotFound      = errors.New("message not found")
 	ErrGroupNotFound        = errors.New("group not found")
 	ErrInvalidGroupName     = errors.New("invalid group name")

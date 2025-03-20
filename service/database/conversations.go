@@ -315,22 +315,132 @@ func (db *appdbimpl) GenerateConversationID() (string, error) {
     return "", fmt.Errorf("failed to generate a unique conversation ID after multiple attempts")
 }
 
-// UPDATED TO THIS POINT 
-
-// AddMessage adds a new message to a conversation and returns the message ID
+// Adds a new message to a conversation and returns the message ID
 func (db *appdbimpl) AddMessage(conversationID, senderID, messageType, content string) (string, error) {
-	messageID := uuid.Must(uuid.NewV4()).String()
-	_, err := db.c.Exec(`
-		INSERT INTO messages (id, conversation_id, sender_id, type, content, created_at, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, messageID, conversationID, senderID, messageType, content, time.Now(), "delivered")
+    // Generate a message ID that matches the pattern ^[a-zA-Z0-9_-]{10,30}$
+    messageID, err := db.GenerateMessageID()
+    if err != nil {
+        return "", fmt.Errorf("error generating message ID: %w", err)
+    }
 
-	if err != nil {
-		return "", fmt.Errorf("error adding message: %w", err)
-	}
+    // Start a transaction
+    tx, err := db.c.Begin()
+    if err != nil {
+        return "", fmt.Errorf("error starting transaction: %w", err)
+    }
 
-	return messageID, nil
+    // Ensure transaction is rolled back if an error occurs
+    defer func() {
+        if tx != nil {
+            if rollbackErr := tx.Rollback(); rollbackErr != nil {
+                // Just log the rollback error, don't override the original error
+                logrus.Printf("Error rolling back transaction: %v", rollbackErr)
+            }
+        }
+    }()
+
+    // Check if conversation exists
+    var exists bool
+    err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM conversations WHERE id = ?)", conversationID).Scan(&exists)
+    if err != nil {
+        return "", fmt.Errorf("error checking conversation existence: %w", err)
+    }
+    if !exists {
+        return "", ErrConversationNotFound
+    }
+
+    // Get current time
+    now := time.Now()
+
+    // Insert the message
+    _, err = tx.Exec(`
+        INSERT INTO messages (id, conversation_id, sender_id, type, content, created_at, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, messageID, conversationID, senderID, messageType, content, now, "delivered")
+
+    if err != nil {
+        return "", fmt.Errorf("error adding message: %w", err)
+    }
+
+    // Commit the transaction
+    if err = tx.Commit(); err != nil {
+        return "", fmt.Errorf("error committing transaction: %w", err)
+    }
+    
+    // Set tx to nil to prevent rollback in defer function
+    tx = nil
+
+    return messageID, nil
 }
+
+// Checks if a user is a participant in a conversation
+func (db *appdbimpl) IsUserInConversation(userID, conversationID string) (bool, error) {
+    // Check if conversation exists
+    var exists bool
+    err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM conversations WHERE id = ?)", conversationID).Scan(&exists)
+    if err != nil {
+        return false, fmt.Errorf("error checking conversation existence: %w", err)
+    }
+    if !exists {
+        return false, ErrConversationNotFound
+    }
+
+    // Check if user is a participant - using user_conversations table instead of conversation_participants
+    var isParticipant bool
+    err = db.c.QueryRow(`
+        SELECT EXISTS(
+            SELECT 1 FROM user_conversations 
+            WHERE conversation_id = ? AND user_id = ?
+        )
+    `, conversationID, userID).Scan(&isParticipant)
+    
+    if err != nil {
+        return false, fmt.Errorf("error checking user participation: %w", err)
+    }
+    
+    return isParticipant, nil
+}
+
+// Retrieves a user's name by their ID
+func (db *appdbimpl) GetUserNameByID(userID string) (string, error) {
+    var username string
+    err := db.c.QueryRow("SELECT name FROM users WHERE id = ?", userID).Scan(&username)
+    if err != nil {
+        if errors.Is(err, sql.ErrNoRows) {
+            return "", ErrUserNotFound
+        }
+        return "", fmt.Errorf("error getting user name: %w", err)
+    }
+    return username, nil
+}
+
+// Creates a unique message ID that matches the pattern ^[a-zA-Z0-9_-]{10,30}$
+func (db *appdbimpl) GenerateMessageID() (string, error) {
+    // Try up to 10 times to generate a unique ID
+    for i := 0; i < 10; i++ {
+        // Generate a random number between 100000000 and 999999999999
+        // This will result in IDs between 11 and 15 characters long ("msg" + 8-12 digits)
+        randomNum := 100000000 + rand.Intn(999999999999-100000000)
+        candidateID := fmt.Sprintf("msg%d", randomNum)
+        
+        // Check if this ID already exists
+        var exists bool
+        err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?)", candidateID).Scan(&exists)
+        if err != nil {
+            return "", fmt.Errorf("error checking message ID existence: %w", err)
+        }
+        
+        // If the ID doesn't exist, return it
+        if !exists {
+            return candidateID, nil
+        }
+    }
+    
+    // If we couldn't generate a unique ID after 10 attempts, return an error
+    return "", fmt.Errorf("failed to generate a unique message ID after multiple attempts")
+}
+
+// UPDATED TO THIS POINT (needs additional endpoints for photo messages)
 
 func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, userID string) (*Message, error) {
 	// Check if the original message exists
@@ -922,16 +1032,4 @@ func (db *appdbimpl) GetComments(messageID string) ([]Comment, error) {
 	}
 
 	return comments, nil
-}
-
-func (db *appdbimpl) IsUserInConversation(userID, conversationID string) (bool, error) {
-	var exists bool
-	err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM user_conversations WHERE user_id = ? AND conversation_id = ?)", userID, conversationID).Scan(&exists)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return false, ErrConversationNotFound
-		}
-		return false, fmt.Errorf("error checking user participation: %w", err)
-	}
-	return exists, nil
 }

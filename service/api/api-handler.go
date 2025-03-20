@@ -15,8 +15,11 @@ func (rt *_router) Handler() http.Handler {
 	// works with current, needs to be retested after some convos present
 	rt.router.POST("/conversations", rt.withAuth(rt.handleStartConversation)) 
 	// updated, retest aswell
+
 	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
+	// After dealing with messages
 	rt.router.POST("/conversations/:conversationId/messages", rt.withAuth(rt.handleSendMessage))
+	
 	rt.router.PUT("/messages/:messageId/status", rt.withAuth(rt.handleUpdateMessageStatus))
 	rt.router.POST("/messages/:messageId/forward", rt.withAuth(rt.handleForwardMessage))
 	rt.router.DELETE("/messages/:messageId", rt.withAuth(rt.handleDeleteMessage))

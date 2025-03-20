@@ -185,16 +185,3 @@ func (db *appdbimpl) UpdateUserPhoto(userID string, photoID string) (string, err
 
 	return oldPhotoIDString, nil
 }
-
-// GetUserNameByID retrieves a user's name by their ID
-func (db *appdbimpl) GetUserNameByID(userID string) (string, error) {
-	var name string
-	err := db.c.QueryRow("SELECT name FROM users WHERE id = ?", userID).Scan(&name)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", ErrUserNotFound
-		}
-		return "", fmt.Errorf("error getting user name: %w", err)
-	}
-	return name, nil
-}

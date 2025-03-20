@@ -258,6 +258,109 @@ func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// Updated
+type sendMessageRequest struct {
+    Type    string `json:"type"`    
+    Content string `json:"content"`
+}
+
+// Updated
+type sendMessageResponse struct {
+    MessageID      string    `json:"messageId"`
+    ConversationID string    `json:"conversationId"`
+    Sender         struct {  
+        Username string `json:"username"`
+        UserID   string `json:"userId"`
+    } `json:"sender"`
+    Content   string `json:"content"`
+    Type      string `json:"type"`    
+    Timestamp string `json:"timestamp"` 
+    Status    string `json:"status"`  
+}
+
+// Updated
+func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
+    conversationID := ps.ByName("conversationId")
+
+    // Check if the user is a participant in the conversation
+    isParticipant, err := rt.db.IsUserInConversation(userID, conversationID)
+    if err != nil {
+        if errors.Is(err, database.ErrConversationNotFound) {
+            sendJSONError(w, "Conversation not found", http.StatusNotFound)
+            return
+        }
+        ctx.Logger.WithError(err).Error("Failed to check user participation in conversation")
+        sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    if !isParticipant {
+        sendJSONError(w, "User is not a participant in this conversation", http.StatusForbidden)
+        return
+    }
+
+    var req sendMessageRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        ctx.Logger.WithError(err).Error("Failed to decode request body")
+        sendJSONError(w, "Invalid request body", http.StatusBadRequest)
+        return
+    }
+
+    if req.Content == "" {
+        sendJSONError(w, "Content is required", http.StatusBadRequest)
+        return
+    }
+
+    if req.Type != "text" && req.Type != "photo" {
+        sendJSONError(w, "Invalid message type", http.StatusBadRequest)
+        return
+    }
+
+    // Check content length
+    if len(req.Content) > 1000 {
+        sendJSONError(w, "Content exceeds maximum length of 1000 characters", http.StatusRequestEntityTooLarge)
+        return
+    }
+
+    // Add the message to the database
+    messageID, err := rt.db.AddMessage(conversationID, userID, req.Type, req.Content)
+    if err != nil {
+        ctx.Logger.WithError(err).Error("Failed to add message")
+        sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    // Get the sender's name
+    senderName, err := rt.db.GetUserNameByID(userID)
+    if err != nil {
+        ctx.Logger.WithError(err).Error("Failed to get sender's name")
+        sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    // Create the response
+    response := sendMessageResponse{
+        MessageID:      messageID,
+        ConversationID: conversationID,
+        Sender: struct {
+            Username string `json:"username"`
+            UserID   string `json:"userId"`
+        }{
+            Username: senderName,
+            UserID:   userID,
+        },
+        Content:   req.Content,
+        Type:      req.Type,
+        Timestamp: time.Now().Format(time.RFC3339),
+        Status:    "delivered", // Initial status is always "delivered"
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusCreated)
+    if err := json.NewEncoder(w).Encode(response); err != nil {
+        ctx.Logger.WithError(err).Error("Failed to encode response")
+    }
+}
+
 func convertMessages(dbMessages []database.Message) []MessageResponse {
 	messages := make([]MessageResponse, len(dbMessages))
 	for i, m := range dbMessages {
@@ -334,84 +437,6 @@ func (rt *_router) handleGetConversationDetails(w http.ResponseWriter, r *http.R
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-type sendMessageRequest struct {
-	MessageType string `json:"messageType"`
-	Content     string `json:"content"`
-}
-
-type sendMessageResponse struct {
-	MessageID      string    `json:"messageId"`
-	ConversationID string    `json:"conversationId"`
-	Sender         string    `json:"sender"`
-	Content        string    `json:"content"`
-	MessageType    string    `json:"messageType"`
-	Timestamp      time.Time `json:"timestamp"`
-}
-
-func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	conversationID := ps.ByName("conversationId")
-
-	// Check if the user is a participant in the conversation
-	isParticipant, err := rt.db.IsUserInConversation(userID, conversationID)
-	if err != nil {
-		if err == database.ErrConversationNotFound {
-			sendJSONError(w, "Conversation not found", http.StatusNotFound)
-		} else {
-			ctx.Logger.WithError(err).Error("Failed to check user participation in conversation")
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		}
-		return
-	}
-	if !isParticipant {
-		sendJSONError(w, "User is not a participant in this conversation", http.StatusForbidden)
-		return
-	}
-
-	var req sendMessageRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		ctx.Logger.WithError(err).Error("Failed to decode request body")
-		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.Content == "" {
-		sendJSONError(w, "Content is required", http.StatusBadRequest)
-		return
-	}
-
-	if req.MessageType != "text" && req.MessageType != "photo" {
-		sendJSONError(w, "Invalid message type", http.StatusBadRequest)
-		return
-	}
-
-	messageID, err := rt.db.AddMessage(conversationID, userID, req.MessageType, req.Content)
-	if err != nil {
-		ctx.Logger.WithError(err).Error("Failed to add message")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	senderName, err := rt.db.GetUserNameByID(userID)
-	if err != nil {
-		ctx.Logger.WithError(err).Error("Failed to get sender's name")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	response := sendMessageResponse{
-		MessageID:      messageID,
-		ConversationID: conversationID,
-		Sender:         senderName,
-		Content:        req.Content,
-		MessageType:    req.MessageType,
-		Timestamp:      time.Now(),
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
 }
 
