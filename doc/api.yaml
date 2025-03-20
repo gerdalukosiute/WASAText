@@ -404,7 +404,7 @@ paths:
       tags: ["conversations"]
       summary: Start a new conversation
       description: |
-        Allows a user to start a new conversation with another user. If a conversation already exists
+        Allows a user to start a new conversation with another user or group. If a conversation already exists
         between the two users, the existing conversation is returned. The conversation is created
         with an empty message list and the creation timestamp is set.
       operationId: startConversation
@@ -421,16 +421,34 @@ paths:
               description: |
                 Details for new conversation request
               properties:
-                recipient:
+                recipients:
+                  type: array
+                  description: |
+                    Usernames of the recipients 
+                  minItems: 1
+                  maxItems: 50
+                  items: 
+                    type: string
+                    pattern: '^[a-zA-Z0-9_-]{3,16}$'
+                    minLength: 3
+                    maxLength: 16
+                    example: "Tara"
+                title: 
                   type: string
                   description: |
-                    Username of the recipient
-                  pattern: '^[a-zA-Z0-9_-]{3,16}$'
+                    Optional title for the conversation.
+                  pattern: '^[a-zA-Z0-9_ ]{3,16}$'
                   minLength: 3
                   maxLength: 16
-                  example: "Tara"
+                  example: "Group Project"
+                isGroup: 
+                  type: boolean
+                  description: |
+                    Indicates if the conversation is a group.
+                  default: false 
+                  example: true 
               required:
-                - recipient
+                - recipients
       responses:
         "201":
           description: |
@@ -531,7 +549,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
           description: |
-            Recipient not found
+            One or more recipients not found
           content:
             application/json:
               schema:
@@ -1669,7 +1687,7 @@ paths:
       tags: ["groups"]
       summary: Add users to a group
       description: |
-        Allows a user to add one or more users to an existing group conversation. 
+        Allows a user to add one or more users to a group conversation. 
         The user performing this action must already be a member of the group.
         This endpoint handles the addition of multiple users at once and provides
         feedback on successful additions and failures.
