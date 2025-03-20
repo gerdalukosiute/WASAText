@@ -13,7 +13,8 @@ func (rt *_router) Handler() http.Handler {
 	rt.router.PUT("/user/:userId", rt.withAuth(rt.handleUpdateUserPhoto)) // updated
 	rt.router.GET("/conversations", rt.withAuth(rt.handleGetConversations))  
 	// works with current, needs to be retested after some convos present
-	rt.router.POST("/conversations", rt.withAuth(rt.handleStartConversation))
+	rt.router.POST("/conversations", rt.withAuth(rt.handleStartConversation)) 
+	// updated, retest aswell
 	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
 	rt.router.POST("/conversations/:conversationId/messages", rt.withAuth(rt.handleSendMessage))
 	rt.router.PUT("/messages/:messageId/status", rt.withAuth(rt.handleUpdateMessageStatus))

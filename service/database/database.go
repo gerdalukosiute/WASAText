@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"math/rand"
 
 	"github.com/sirupsen/logrus"
 )
@@ -17,7 +18,9 @@ type AppDatabase interface {
 	SearchUsers(query string) ([]User, int, error)
 	UpdateUserPhoto(userID string, photoID string) (string, error)
 	GetUserConversations(userID string) ([]Conversation, int, error)
-	StartConversation(initiatorID string, title string, isGroup bool, participants []string) (string, error)
+	StartConversation(initiatorID string, recipientIDs []string, title string, isGroup bool) (string, error)
+	GetExistingConversation(userID1, userID2 string) (string, bool, error)
+	GenerateConversationID() (string, error)
 	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
 	AddMessage(conversationID, senderID, messageType, content string) (string, error)
 	GetUserNameByID(userID string) (string, error)
@@ -90,7 +93,7 @@ type Comment struct {
 	Timestamp time.Time
 }
 
-// Conversation represents a summary of a conversation in the database
+// Conversation represents a summary of a conversation in the database (Updated)
 type Conversation struct {
 	ID           string
 	Title        string
@@ -139,6 +142,10 @@ func New(db *sql.DB) (AppDatabase, error) {
 		return nil, errors.New("database is required when building a AppDatabase")
 	}
 
+	// Seed the random number generator
+    rand.Seed(time.Now().UnixNano())
+
+
 	// Check if tables exist. If not, create them.
 	if err := createTables(db); err != nil {
 		return nil, fmt.Errorf("error creating database structure: %w", err)
@@ -161,7 +168,7 @@ func createTables(db *sql.DB) error {
 			title TEXT,
 			profile_photo TEXT,
 			is_group BOOLEAN NOT NULL,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMPs
+			created_at DATETIME NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS messages (
 			id TEXT PRIMARY KEY,

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"errors"
 
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/gerdalukosiute/WASAText/service/database"
@@ -59,20 +60,21 @@ type CommentResponse struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// ConversationResponse represents the API response for a conversation summary
+// ConversationResponse represents the API response for a conversation summary (Updated)
 type ConversationResponse struct {
-	ID             string    `json:"conversationId"`
-	Title          string    `json:"title"`
-	CreatedAt      time.Time `json:"createdAt"`
-	ProfilePhotoID *string   `json:"profilePhotoId,omitempty"`
-	IsGroup        bool      `json:"isGroup"`
+	ConversationID string `json:"conversationId"`
+	Title          string `json:"title"`
+	CreatedAt      string `json:"createdAt"`
+	ProfilePhotoID *string `json:"profilePhotoId,omitempty"`
+	IsGroup        bool   `json:"isGroup"`
 	LastMessage    struct {
-		Type      string    `json:"type"`
-		Content   string    `json:"content"`
-		Timestamp time.Time `json:"timestamp"`
+		Type      string `json:"type"`
+		Content   string `json:"content"`
+		Timestamp string `json:"timestamp"`
 	} `json:"lastMessage"`
 }
 
+// Updated 
 func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	ctx.Logger.WithField("userID", userID).Info("Handling get conversations request")
 
@@ -95,24 +97,27 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Prepare the response according to API spec
+	// Convert database.Conversation to ConversationResponse
 	conversationResponses := make([]ConversationResponse, len(conversations))
 	for i, conv := range conversations {
+		// Create the LastMessage struct with proper type conversion
+		lastMessage := struct {
+			Type      string `json:"type"`
+			Content   string `json:"content"`
+			Timestamp string `json:"timestamp"`
+		}{
+			Type:      conv.LastMessage.Type,
+			Content:   conv.LastMessage.Content,
+			Timestamp: conv.LastMessage.Timestamp.Format(time.RFC3339),
+		}
+
 		conversationResponses[i] = ConversationResponse{
-			ID:             conv.ID,
+			ConversationID: conv.ID,                        // Use the ID field from Conversation
 			Title:          conv.Title,
-			CreatedAt:      conv.CreatedAt,
+			CreatedAt:      conv.CreatedAt.Format(time.RFC3339), // Convert time.Time to string
 			ProfilePhotoID: conv.ProfilePhoto,
 			IsGroup:        conv.IsGroup,
-			LastMessage: struct {
-				Type      string    `json:"type"`
-				Content   string    `json:"content"`
-				Timestamp time.Time `json:"timestamp"`
-			}{
-				Type:      conv.LastMessage.Type,
-				Content:   conv.LastMessage.Content,
-				Timestamp: conv.LastMessage.Timestamp,
-			},
+			LastMessage:    lastMessage,
 		}
 	}
 
@@ -134,6 +139,121 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		ctx.Logger.WithError(err).Error("Failed to encode JSON response")
 		return
+	}
+}
+
+func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
+	ctx.Logger.WithField("userID", userID).Info("Handling start conversation request")
+
+	var req struct {
+		Recipients []string `json:"recipients"`
+		Title      string   `json:"title"`
+		IsGroup    bool     `json:"isGroup"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to decode request body")
+		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Recipients) == 0 {
+		ctx.Logger.Error("No recipients provided")
+		sendJSONError(w, "At least one recipient is required", http.StatusBadRequest)
+		return
+	}
+
+	// For group conversations, title is required
+	if req.IsGroup && req.Title == "" {
+		ctx.Logger.Error("No title provided for group conversation")
+		sendJSONError(w, "Title is required for group conversations", http.StatusBadRequest)
+		return
+	}
+
+	// Get recipient IDs from usernames
+	recipientIDs := make([]string, 0, len(req.Recipients))
+	for _, recipientName := range req.Recipients {
+		recipientID, err := rt.db.GetOrCreateUser(recipientName)
+		if err != nil {
+			ctx.Logger.WithError(err).WithField("recipient", recipientName).Error("Failed to get recipient")
+			
+			// Handle specific errors
+			switch {
+			case errors.Is(err, database.ErrInvalidNameLength), errors.Is(err, database.ErrInvalidNameFormat):
+				sendJSONError(w, fmt.Sprintf("Invalid recipient name format: %s", recipientName), http.StatusBadRequest)
+			case errors.Is(err, database.ErrNameAlreadyTaken):
+				sendJSONError(w, fmt.Sprintf("Recipient name already taken: %s", recipientName), http.StatusBadRequest)
+			default:
+				sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+			}
+			return
+		}
+		recipientIDs = append(recipientIDs, recipientID)
+	}
+
+	// For 1:1 conversations, use the recipient's name as the title if not provided
+	title := req.Title
+	if !req.IsGroup && len(req.Recipients) == 1 && title == "" {
+		title = req.Recipients[0]
+	}
+
+	// Start the conversation
+	_, err := rt.db.StartConversation(userID, recipientIDs, title, req.IsGroup)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to start conversation")
+		if strings.Contains(err.Error(), "participant with ID") {
+			sendJSONError(w, fmt.Sprintf("Invalid participant: %v", err), http.StatusBadRequest)
+		} else {
+			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Reuse the GetUserConversations function to get the response
+	conversations, total, err := rt.db.GetUserConversations(userID)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to get user conversations")
+		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Convert database.Conversation to ConversationResponse
+	conversationResponses := make([]ConversationResponse, len(conversations))
+	for i, conv := range conversations {
+		// Create the LastMessage struct with proper type conversion
+		lastMessage := struct {
+			Type      string `json:"type"`
+			Content   string `json:"content"`
+			Timestamp string `json:"timestamp"`
+		}{
+			Type:      conv.LastMessage.Type,
+			Content:   conv.LastMessage.Content,
+			Timestamp: conv.LastMessage.Timestamp.Format(time.RFC3339),
+		}
+
+		conversationResponses[i] = ConversationResponse{
+			ConversationID: conv.ID,
+			Title:          conv.Title,
+			CreatedAt:      conv.CreatedAt.Format(time.RFC3339),
+			ProfilePhotoID: conv.ProfilePhoto,
+			IsGroup:        conv.IsGroup,
+			LastMessage:    lastMessage,
+		}
+	}
+
+	// Use the converted response structure
+	response := struct {
+		Conversations []ConversationResponse `json:"conversations"`
+		Total         int                    `json:"total"`
+	}{
+		Conversations: conversationResponses,
+		Total:         total,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to encode response")
 	}
 }
 
@@ -213,77 +333,6 @@ func (rt *_router) handleGetConversationDetails(w http.ResponseWriter, r *http.R
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	ctx.Logger.WithField("userID", userID).Info("Handling start conversation request")
-
-	var req struct {
-		Title        string   `json:"title"`
-		IsGroup      bool     `json:"isGroup"`
-		Participants []string `json:"participants"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		ctx.Logger.WithError(err).Error("Failed to decode request body")
-		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if !req.IsGroup && len(req.Participants) != 1 {
-		ctx.Logger.Error("Invalid number of participants for non-group conversation")
-		sendJSONError(w, "For non-group conversations, exactly one recipient is required", http.StatusBadRequest)
-		return
-	}
-
-	if req.IsGroup && len(req.Participants) < 1 {
-		ctx.Logger.Error("No participants provided for group conversation")
-		sendJSONError(w, "For group conversations, at least one participant is required", http.StatusBadRequest)
-		return
-	}
-
-	// Add the creator to the participants list if not already present
-	participants := append(req.Participants, userID)
-	uniqueParticipants := make([]string, 0, len(participants))
-	seen := make(map[string]bool)
-	for _, p := range participants {
-		if !seen[p] {
-			seen[p] = true
-			uniqueParticipants = append(uniqueParticipants, p)
-		}
-	}
-
-	conversationID, err := rt.db.StartConversation(userID, req.Title, req.IsGroup, uniqueParticipants)
-	if err != nil {
-		ctx.Logger.WithError(err).Error("Failed to start conversation")
-		if strings.Contains(err.Error(), "participant with ID") {
-			sendJSONError(w, fmt.Sprintf("Invalid participant: %v", err), http.StatusBadRequest)
-		} else {
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Fetch the conversation details
-	conversation, err := rt.db.GetConversationDetails(conversationID, userID)
-	if err != nil {
-		ctx.Logger.WithError(err).Error("Failed to fetch conversation details")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	response := ConversationDetailsResponse{
-		ID:           conversation.ID,
-		Title:        conversation.Title,
-		IsGroup:      conversation.IsGroup,
-		UpdatedAt:    conversation.UpdatedAt,
-		Participants: convertParticipants(conversation.Participants),
-		Messages:     convertMessages(conversation.Messages),
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
 }
 

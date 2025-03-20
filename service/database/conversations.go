@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"time"
 	"unicode/utf8"
+	"errors"
+	"math/rand"
+	"log"
 
 	"github.com/gofrs/uuid"
 	"github.com/sirupsen/logrus"
@@ -32,7 +35,7 @@ func (db *appdbimpl) GetUserConversations(userID string) ([]Conversation, int, e
 	
 	// Now get the conversations with details
 	query := `
-	SELECT c.id, c.title, c.is_group, c.updated_at,
+	SELECT c.id, c.title, c.is_group, c.created_at,
 		   CASE
 			   WHEN c.is_group = 0 THEN (
 				   SELECT u.name
@@ -65,7 +68,7 @@ func (db *appdbimpl) GetUserConversations(userID string) ([]Conversation, int, e
 		) m2 ON m1.conversation_id = m2.conversation_id AND m1.created_at = m2.max_created_at
 	) m ON c.id = m.conversation_id
 	WHERE u.id = ?
-	ORDER BY COALESCE(m.created_at, c.updated_at) DESC
+	ORDER BY COALESCE(m.created_at, c.created_at) DESC
 	LIMIT 10000
 	`
 
@@ -77,57 +80,76 @@ func (db *appdbimpl) GetUserConversations(userID string) ([]Conversation, int, e
 	defer rows.Close()
 
 	var conversations []Conversation
-	for rows.Next() {
-		var conv Conversation
-		var displayTitle, displayPhoto, messageType, messageContent sql.NullString
-		var messageTimestamp, conversationCreatedAt sql.NullTime
+    for rows.Next() {
+        var conv Conversation
+        var displayTitle, displayPhoto, messageType, messageContent sql.NullString
+        var messageTimestamp, conversationCreatedAt sql.NullTime
 
-		err := rows.Scan(
-			&conv.ID,
-			&conv.Title,
-			&conv.IsGroup,
-			&conversationCreatedAt,
-			&displayTitle,
-			&displayPhoto,
-			&messageType,
-			&messageContent,
-			&messageTimestamp,
-		)
-		if err != nil {
-			logrus.WithError(err).Error("Error scanning conversation row")
-			return nil, 0, fmt.Errorf("error scanning conversation row: %w", err)
-		}
+        err := rows.Scan(
+            &conv.ID,
+            &conv.Title,
+            &conv.IsGroup,
+            &conversationCreatedAt,
+            &displayTitle,
+            &displayPhoto,
+            &messageType,
+            &messageContent,
+            &messageTimestamp,
+        )
+        if err != nil {
+            logrus.WithError(err).Error("Error scanning conversation row")
+            return nil, 0, fmt.Errorf("error scanning conversation row: %w", err)
+        }
 
-		// Use the display title from the query
-		if displayTitle.Valid {
-			conv.Title = displayTitle.String
-		}
-		
-		// Set the profile photo
-		if displayPhoto.Valid {
-			conv.ProfilePhoto = &displayPhoto.String
-		}
-		
-		// Set the creation time
-		if conversationCreatedAt.Valid {
-			conv.CreatedAt = conversationCreatedAt.Time
-		}
+        // Use the display title from the query
+        if displayTitle.Valid {
+            conv.Title = displayTitle.String
+        }
+        
+        // Set the profile photo
+        if displayPhoto.Valid {
+            conv.ProfilePhoto = &displayPhoto.String
+        }
+        
+        // Set the creation time
+        if conversationCreatedAt.Valid {
+            conv.CreatedAt = conversationCreatedAt.Time
+        }
 
-		// Set the last message details
-		conv.LastMessage = struct {
-			Type      string
-			Content   string
-			Timestamp time.Time
-		}{
-			Type:    messageType.String,
-			Content: messageContent.String,
-		}
-		if messageTimestamp.Valid {
-			conv.LastMessage.Timestamp = messageTimestamp.Time
-		}
+        // Set the last message details
+        var msgType, msgContent string
+        var msgTimestamp time.Time
+        
+        if messageType.Valid {
+            msgType = messageType.String
+        } else {
+            msgType = ""
+        }
+        
+        if messageContent.Valid {
+            msgContent = messageContent.String
+        } else {
+            msgContent = ""
+        }
+        
+        if messageTimestamp.Valid {
+            msgTimestamp = messageTimestamp.Time
+        } else {
+            msgTimestamp = time.Time{} // Zero value for time.Time
+        }
+        
+        conv.LastMessage = struct {
+            Type      string
+            Content   string
+            Timestamp time.Time
+        }{
+            Type:      msgType,
+            Content:   msgContent,
+            Timestamp: msgTimestamp,
+        }
 
-		conversations = append(conversations, conv)
-	}
+        conversations = append(conversations, conv)
+    }
 
 	if err := rows.Err(); err != nil {
 		logrus.WithError(err).Error("Error iterating conversation rows")
@@ -750,18 +772,46 @@ func (db *appdbimpl) GetComments(messageID string) ([]Comment, error) {
 	return comments, nil
 }
 
-func (db *appdbimpl) StartConversation(initiatorID string, title string, isGroup bool, participants []string) (string, error) {
+func (db *appdbimpl) StartConversation(initiatorID string, recipientIDs []string, title string, isGroup bool) (string, error) {
 	tx, err := db.c.Begin()
 	if err != nil {
 		return "", fmt.Errorf("error starting transaction: %w", err)
 	}
-	defer tx.Rollback()
+	
+	// Defer rollback - will be a no-op if transaction is committed
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			log.Printf("Error rolling back transaction: %v", rollbackErr)
+		}
+	}()
 
-	// Generate a new UUID for the conversation
-	conversationID := uuid.Must(uuid.NewV4()).String()
+	// For 1:1 conversations, check if a conversation already exists
+	if !isGroup && len(recipientIDs) == 1 {
+		existingID, exists, err := db.GetExistingConversation(initiatorID, recipientIDs[0])
+		if err != nil {
+			return "", fmt.Errorf("error checking for existing conversation: %w", err)
+		}
+		if exists {
+			// If a conversation already exists, commit the empty transaction and return the existing ID
+			if err := tx.Commit(); err != nil {
+				return "", fmt.Errorf("error committing transaction: %w", err)
+			}
+			return existingID, nil
+		}
+	}
+
+	// Generate a conversation ID that matches the pattern ^[a-zA-Z0-9_-]{6,20}$
+	conversationID, err := db.GenerateConversationID()
+	if err != nil {
+		return "", fmt.Errorf("error generating conversation ID: %w", err)
+	}
+
+	// Current time for created_at
+	now := time.Now()
 
 	// Insert the new conversation
-	_, err = tx.Exec("INSERT INTO conversations (id, title, is_group, updated_at) VALUES (?, ?, ?, ?)", conversationID, title, isGroup, time.Now())
+	_, err = tx.Exec("INSERT INTO conversations (id, title, profile_photo, is_group, created_at) VALUES (?, ?, NULL, ?, ?)",
+		conversationID, title, isGroup, now)
 	if err != nil {
 		return "", fmt.Errorf("error creating conversation: %w", err)
 	}
@@ -775,7 +825,19 @@ func (db *appdbimpl) StartConversation(initiatorID string, title string, isGroup
 	}
 
 	// Add all participants (including the initiator) to the conversation
-	for _, participantID := range participants {
+	participants := append([]string{initiatorID}, recipientIDs...)
+	
+	// Remove duplicates from participants
+	uniqueParticipants := make([]string, 0, len(participants))
+	seen := make(map[string]bool)
+	for _, p := range participants {
+		if !seen[p] {
+			seen[p] = true
+			uniqueParticipants = append(uniqueParticipants, p)
+		}
+	}
+	
+	for _, participantID := range uniqueParticipants {
 		// Check if the participant exists
 		var exists bool
 		err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)", participantID).Scan(&exists)
@@ -786,14 +848,17 @@ func (db *appdbimpl) StartConversation(initiatorID string, title string, isGroup
 			return "", fmt.Errorf("participant with ID %s does not exist", participantID)
 		}
 
-		_, err = tx.Exec("INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)", participantID, conversationID)
+		// Add participant to the conversation
+		_, err = tx.Exec("INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)",
+			participantID, conversationID)
 		if err != nil {
 			return "", fmt.Errorf("error adding participant %s to conversation: %w", participantID, err)
 		}
 
 		// If it's a group, also add to group_members
 		if isGroup {
-			_, err = tx.Exec("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", conversationID, participantID)
+			_, err = tx.Exec("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)",
+				conversationID, participantID)
 			if err != nil {
 				return "", fmt.Errorf("error adding participant %s to group: %w", participantID, err)
 			}
@@ -805,6 +870,56 @@ func (db *appdbimpl) StartConversation(initiatorID string, title string, isGroup
 	}
 
 	return conversationID, nil
+}
+
+func (db *appdbimpl) GetExistingConversation(userID1, userID2 string) (string, bool, error) {
+    // Find conversations where both users are participants and it's not a group
+    query := `
+        SELECT c.id 
+        FROM conversations c
+        JOIN user_conversations uc1 ON c.id = uc1.conversation_id
+        JOIN user_conversations uc2 ON c.id = uc2.conversation_id
+        WHERE c.is_group = 0
+        AND uc1.user_id = ?
+        AND uc2.user_id = ?
+    `
+    
+    var conversationID string
+    err := db.c.QueryRow(query, userID1, userID2).Scan(&conversationID)
+    if err != nil {
+        if errors.Is(err, sql.ErrNoRows) {
+            return "", false, nil
+        }
+        return "", false, fmt.Errorf("error checking for existing conversation: %w", err)
+    }
+    
+    return conversationID, true, nil
+}
+
+// Creates a unique conversation ID that matches the pattern ^[a-zA-Z0-9_-]{6,20}$
+func (db *appdbimpl) GenerateConversationID() (string, error) {
+    // Try up to 10 times to generate a unique ID
+    for i := 0; i < 10; i++ {
+        // Generate a random number between 100 and 999999
+        // This will result in IDs between 7 and 10 characters long ("chat" + 3-6 digits)
+        randomNum := 100 + rand.Intn(999900)
+        candidateID := fmt.Sprintf("chat%d", randomNum)
+        
+        // Check if this ID already exists
+        var exists bool
+        err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM conversations WHERE id = ?)", candidateID).Scan(&exists)
+        if err != nil {
+            return "", fmt.Errorf("error checking conversation ID existence: %w", err)
+        }
+        
+        // If the ID doesn't exist, return it
+        if !exists {
+            return candidateID, nil
+        }
+    }
+    
+    // If it couldn't generate a unique ID after 10 attempts, return an error
+    return "", fmt.Errorf("failed to generate a unique conversation ID after multiple attempts")
 }
 
 func (db *appdbimpl) IsUserInConversation(userID, conversationID string) (bool, error) {
