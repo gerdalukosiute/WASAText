@@ -19,7 +19,8 @@ func (rt *_router) Handler() http.Handler {
 	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
 	// After dealing with messages
 	rt.router.POST("/conversations/:conversationId/messages", rt.withAuth(rt.handleSendMessage))
-	
+	rt.router.GET("/media/:mediaId", rt.withAuth(rt.handleGetMedia)) // New
+	// re-do to handle both pics and texts
 	rt.router.PUT("/messages/:messageId/status", rt.withAuth(rt.handleUpdateMessageStatus))
 	rt.router.POST("/messages/:messageId/forward", rt.withAuth(rt.handleForwardMessage))
 	rt.router.DELETE("/messages/:messageId", rt.withAuth(rt.handleDeleteMessage))

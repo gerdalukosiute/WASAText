@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 	"errors"
+	"io"
 
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/gerdalukosiute/WASAText/service/database"
@@ -171,22 +172,14 @@ func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	
 	// Get recipient IDs from usernames
 	recipientIDs := make([]string, 0, len(req.Recipients))
 	for _, recipientName := range req.Recipients {
-		recipientID, err := rt.db.GetOrCreateUser(recipientName)
+		recipientID, err := rt.db.GetUserIDByName(recipientName)
 		if err != nil {
 			ctx.Logger.WithError(err).WithField("recipient", recipientName).Error("Failed to get recipient")
-			
-			// Handle specific errors
-			switch {
-			case errors.Is(err, database.ErrInvalidNameLength), errors.Is(err, database.ErrInvalidNameFormat):
-				sendJSONError(w, fmt.Sprintf("Invalid recipient name format: %s", recipientName), http.StatusBadRequest)
-			case errors.Is(err, database.ErrNameAlreadyTaken):
-				sendJSONError(w, fmt.Sprintf("Recipient name already taken: %s", recipientName), http.StatusBadRequest)
-			default:
-				sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-			}
+			sendJSONError(w, fmt.Sprintf("Recipient not found: %s", recipientName), http.StatusBadRequest)
 			return
 		}
 		recipientIDs = append(recipientIDs, recipientID)
@@ -259,106 +252,172 @@ func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Reques
 }
 
 // Updated
-type sendMessageRequest struct {
-    Type    string `json:"type"`    
-    Content string `json:"content"`
-}
-
-// Updated
-type sendMessageResponse struct {
-    MessageID      string    `json:"messageId"`
-    ConversationID string    `json:"conversationId"`
-    Sender         struct {  
-        Username string `json:"username"`
-        UserID   string `json:"userId"`
-    } `json:"sender"`
-    Content   string `json:"content"`
-    Type      string `json:"type"`    
-    Timestamp string `json:"timestamp"` 
-    Status    string `json:"status"`  
-}
-
-// Updated
 func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-    conversationID := ps.ByName("conversationId")
+	conversationID := ps.ByName("conversationId")
 
-    // Check if the user is a participant in the conversation
-    isParticipant, err := rt.db.IsUserInConversation(userID, conversationID)
-    if err != nil {
-        if errors.Is(err, database.ErrConversationNotFound) {
-            sendJSONError(w, "Conversation not found", http.StatusNotFound)
-            return
-        }
-        ctx.Logger.WithError(err).Error("Failed to check user participation in conversation")
-        sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-    if !isParticipant {
-        sendJSONError(w, "User is not a participant in this conversation", http.StatusForbidden)
-        return
-    }
+	// Check if the user is a participant in the conversation
+	isParticipant, err := rt.db.IsUserInConversation(userID, conversationID)
+	if err != nil {
+		if errors.Is(err, database.ErrConversationNotFound) {
+			sendJSONError(w, "Conversation not found", http.StatusNotFound)
+			return
+		}
+		ctx.Logger.WithError(err).Error("Failed to check user participation in conversation")
+		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if !isParticipant {
+		sendJSONError(w, "User is not a participant in this conversation", http.StatusForbidden)
+		return
+	}
 
-    var req sendMessageRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        ctx.Logger.WithError(err).Error("Failed to decode request body")
-        sendJSONError(w, "Invalid request body", http.StatusBadRequest)
-        return
-    }
+	contentType := r.Header.Get("Content-Type")
+	var messageType, content, contentTypeValue string
+	var photo []byte
 
-    if req.Content == "" {
-        sendJSONError(w, "Content is required", http.StatusBadRequest)
-        return
-    }
+	// Handle different content types according to API spec
+	if strings.HasPrefix(contentType, "application/json") {
+		// Handle JSON request for text messages
+		var req struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			ctx.Logger.WithError(err).Error("Failed to decode request body")
+			sendJSONError(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
 
-    if req.Type != "text" && req.Type != "photo" {
-        sendJSONError(w, "Invalid message type", http.StatusBadRequest)
-        return
-    }
+		if req.Type != "text" {
+			sendJSONError(w, "Invalid message type for JSON content", http.StatusBadRequest)
+			return
+		}
 
-    // Check content length
-    if len(req.Content) > 1000 {
-        sendJSONError(w, "Content exceeds maximum length of 1000 characters", http.StatusRequestEntityTooLarge)
-        return
-    }
+		if req.Content == "" {
+			sendJSONError(w, "Content is required", http.StatusBadRequest)
+			return
+		}
 
-    // Add the message to the database
-    messageID, err := rt.db.AddMessage(conversationID, userID, req.Type, req.Content)
-    if err != nil {
-        ctx.Logger.WithError(err).Error("Failed to add message")
-        sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
+		// Check content length
+		if len(req.Content) > 1000 {
+			sendJSONError(w, "Content exceeds maximum length of 1000 characters", http.StatusRequestEntityTooLarge)
+			return
+		}
 
-    // Get the sender's name
-    senderName, err := rt.db.GetUserNameByID(userID)
-    if err != nil {
-        ctx.Logger.WithError(err).Error("Failed to get sender's name")
-        sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
+		messageType = req.Type
+		content = req.Content
+		contentTypeValue = "text/plain"
+	} else if strings.HasPrefix(contentType, "multipart/form-data") {
+		// Handle multipart form for photo messages
+		if err := r.ParseMultipartForm(10 << 20); err != nil { // 10 MB max
+			ctx.Logger.WithError(err).Error("Failed to parse multipart form")
+			sendJSONError(w, "Failed to parse form data", http.StatusBadRequest)
+			return
+		}
 
-    // Create the response
-    response := sendMessageResponse{
-        MessageID:      messageID,
-        ConversationID: conversationID,
-        Sender: struct {
-            Username string `json:"username"`
-            UserID   string `json:"userId"`
-        }{
-            Username: senderName,
-            UserID:   userID,
-        },
-        Content:   req.Content,
-        Type:      req.Type,
-        Timestamp: time.Now().Format(time.RFC3339),
-        Status:    "delivered", // Initial status is always "delivered"
-    }
+		formType := r.FormValue("type")
+		if formType != "photo" {
+			sendJSONError(w, "Invalid message type for multipart content", http.StatusBadRequest)
+			return
+		}
 
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(http.StatusCreated)
-    if err := json.NewEncoder(w).Encode(response); err != nil {
-        ctx.Logger.WithError(err).Error("Failed to encode response")
-    }
+		file, header, err := r.FormFile("photo")
+		if err != nil {
+			ctx.Logger.WithError(err).Error("Failed to get photo from form")
+			sendJSONError(w, "Photo is required", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		// Check file size (10MB max)
+		if header.Size > 10485760 {
+			sendJSONError(w, "Photo exceeds maximum size of 10MB", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		// Read the file
+		photo, err = io.ReadAll(file)
+		if err != nil {
+			ctx.Logger.WithError(err).Error("Failed to read photo data")
+			sendJSONError(w, "Failed to read photo data", http.StatusInternalServerError)
+			return
+		}
+
+		if len(photo) < 100 {
+			sendJSONError(w, "Photo is too small", http.StatusBadRequest)
+			return
+		}
+
+		// Detect content type
+		contentTypeValue = http.DetectContentType(photo)
+		
+		// Store the photo in the media_files table
+		mediaID, err := rt.db.StoreMediaFile(photo, contentTypeValue)
+		if err != nil {
+			ctx.Logger.WithError(err).Error("Failed to store media file")
+			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		
+		messageType = "photo"
+		// Store the URL to the media in the content field
+		content = fmt.Sprintf("/api/media/%s", mediaID)
+	} else {
+		sendJSONError(w, "Unsupported content type", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	// Add the message to the database with content type
+	messageID, err := rt.db.AddMessage(conversationID, userID, messageType, content, contentTypeValue)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to add message")
+		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Get the sender's name
+	senderName, err := rt.db.GetUserNameByID(userID)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to get sender's name")
+		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Create the response
+	response := struct {
+		MessageID      string `json:"messageId"`
+		ConversationID string `json:"conversationId"`
+		Sender         struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		} `json:"sender"`
+		Content     string `json:"content"`
+		ContentType string `json:"contentType"`
+		Type        string `json:"type"`
+		Timestamp   string `json:"timestamp"`
+		Status      string `json:"status"`
+	}{
+		MessageID:      messageID,
+		ConversationID: conversationID,
+		Sender: struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		}{
+			Username: senderName,
+			UserID:   userID,
+		},
+		Content:     content,
+		ContentType: contentTypeValue,
+		Type:        messageType,
+		Timestamp:   time.Now().Format(time.RFC3339),
+		Status:      "delivered", // Initial status is always "delivered"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to encode response")
+	}
 }
 
 func convertMessages(dbMessages []database.Message) []MessageResponse {

@@ -19,12 +19,17 @@ type AppDatabase interface {
 	UpdateUserPhoto(userID string, photoID string) (string, error)
 	GetUserConversations(userID string) ([]Conversation, int, error)
 	StartConversation(initiatorID string, recipientIDs []string, title string, isGroup bool) (string, error)
+	GetUserIDByName(name string) (string, error)
 	GetExistingConversation(userID1, userID2 string) (string, bool, error)
 	GenerateConversationID() (string, error)
-	AddMessage(conversationID, senderID, messageType, content string) (string, error)
+	AddMessage(conversationID, senderID, messageType, content string, contentType string) (string, error) 
 	IsUserInConversation(userID, conversationID string) (bool, error)
 	GetUserNameByID(userID string) (string, error)
 	GenerateMessageID() (string, error) 
+	// New methods for media handling
+    StoreMediaFile(fileData []byte, mimeType string) (string, error)
+    GetMediaFile(mediaID string) ([]byte, string, error) 
+	// Rest not updated
 	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
 	GetComments(messageID string) ([]Comment, error)
 	ForwardMessage(originalMessageID, targetConversationID, userID string) (*Message, error)
@@ -71,17 +76,18 @@ type Participant struct {
 	Name string
 }
 
-// Message represents a message in a conversation
+// Message struct update - added ContentType field
 type Message struct {
-	ID        string
-	SenderID  string
-	Sender    string
-	Type      string
-	Content   string
-	Icon      string
-	Timestamp time.Time
-	Status    string
-	Comments  []Comment
+    ID          string
+    SenderID    string
+    Sender      string
+    Type        string
+    Content     string
+    ContentType string 
+    Icon        string
+    Timestamp   time.Time
+    Status      string
+    Comments    []Comment
 }
 
 // Comment represents a comment on a message
@@ -177,6 +183,7 @@ func createTables(db *sql.DB) error {
 			sender_id TEXT NOT NULL,
 			type TEXT NOT NULL,
 			content TEXT NOT NULL,
+			content_type TEXT,
 			icon TEXT,
 			created_at DATETIME NOT NULL,
 			status TEXT NOT NULL,
@@ -217,6 +224,13 @@ func createTables(db *sql.DB) error {
 			PRIMARY KEY (group_id, user_id),
 			FOREIGN KEY (group_id) REFERENCES groups(id),
 			FOREIGN KEY (user_id) REFERENCES users(id)
+		)`,
+		// Added new media_files table
+		`CREATE TABLE IF NOT EXISTS media_files (
+		id TEXT PRIMARY KEY,
+		file_data BLOB NOT NULL,
+		mime_type TEXT NOT NULL,
+		created_at DATETIME NOT NULL
 		)`,
 	}
 

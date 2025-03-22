@@ -15,54 +15,69 @@ import (
 
 // GetOrCreateUser retrieves a user by name or creates a new one if it doesn't exist
 func (db *appdbimpl) GetOrCreateUser(name string) (string, error) {
-	// Validate username length and pattern before database operations
-	if len(name) < 3 || len(name) > 16 {
-		return "", ErrInvalidNameLength
-	}
+    // Validate username length and pattern before database operations
+    if len(name) < 3 || len(name) > 16 {
+        return "", ErrInvalidNameLength
+    }
 
-	namePattern := regexp.MustCompile(`^[a-zA-Z0-9_-]{3,16}$`)
-	if !namePattern.MatchString(name) {
-		return "", ErrInvalidNameFormat
-	}
+    namePattern := regexp.MustCompile(`^[a-zA-Z0-9_-]{3,16}$`)
+    if !namePattern.MatchString(name) {
+        return "", ErrInvalidNameFormat
+    }
 
-	// First, try to get the user
-	var userID string
-	err := db.c.QueryRow("SELECT id FROM users WHERE name = ?", name).Scan(&userID)
-	if err == nil {
-		// User exists, return the ID
-		return userID, nil
-	}
-	
-	// If error is not "no rows", return the error
-	if !errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("error querying user: %w", err)
-	}
-	
-	// User doesn't exist, create a new one with a 12-character identifier
-	userID = generateUserID()
-	
-	// Insert the new user
-	_, err = db.c.Exec("INSERT INTO users (id, name) VALUES (?, ?)", userID, name)
-	if err != nil {
-		// Check for unique constraint violation
-		var sqliteErr sqlite3.Error
-		if errors.As(err, &sqliteErr) && sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique {
-			// Another concurrent request might have created the user, try to get it
-			err = db.c.QueryRow("SELECT id FROM users WHERE name = ?", name).Scan(&userID)
-			if err == nil {
-				return userID, nil
-			}
-			return "", ErrNameAlreadyTaken
-		}
-		return "", fmt.Errorf("error creating user: %w", err)
-	}
+    // First, try to get the user
+    var userID string
+    err := db.c.QueryRow("SELECT id FROM users WHERE name = ?", name).Scan(&userID)
+    if err == nil {
+        // User exists, return the ID
+        return userID, nil
+    }
+    
+    // If error is not "no rows", return the error
+    if !errors.Is(err, sql.ErrNoRows) {
+        return "", fmt.Errorf("error querying user: %w", err)
+    }
+    
+    // User doesn't exist, create a new one with a 12-character identifier
+    for attempts := 0; attempts < 5; attempts++ {
+        userID = generateUserID()
+        
+        // Check if this ID is already used as a name 
+        var count int
+        err = db.c.QueryRow("SELECT COUNT(*) FROM users WHERE name = ?", userID).Scan(&count)
+        if err != nil {
+            return "", fmt.Errorf("error checking user ID: %w", err)
+        }
+        if count > 0 {
+            // This ID is already used as a name, try another one
+            continue
+        }
+        
+        // Insert the new user
+        _, err = db.c.Exec("INSERT INTO users (id, name) VALUES (?, ?)", userID, name)
+        if err != nil {
+            // Check for unique constraint violation
+            var sqliteErr sqlite3.Error
+            if errors.As(err, &sqliteErr) && sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique {
+                // Another concurrent request might have created the user, try to get it
+                err = db.c.QueryRow("SELECT id FROM users WHERE name = ?", name).Scan(&userID)
+                if err == nil {
+                    return userID, nil
+                }
+                return "", ErrNameAlreadyTaken
+            }
+            return "", fmt.Errorf("error creating user: %w", err)
+        }
 
-	logrus.WithFields(logrus.Fields{
-		"name": name,
-		"id":   userID,
-	}).Info("Created new user")
+        logrus.WithFields(logrus.Fields{
+            "name": name,
+            "id":   userID,
+        }).Info("Created new user")
 
-	return userID, nil
+        return userID, nil
+    }
+    
+    return "", fmt.Errorf("failed to generate a unique user ID after multiple attempts")
 }
 
 // generateUserID creates a 12-character identifier following the pattern ^[a-zA-Z0-9_-]{12}$
