@@ -1342,9 +1342,8 @@ paths:
         tags: ["messages"]
         summary: Add a reaction or reply to a message
         description: |
-          Allows a user to add an emoji reaction or a text reply to an existing message. 
+          Allows a user to add an emoji reaction to an existing message. 
           Reactions are typically emojis and are associated with the user's username. 
-          Replies are text-based responses that reference the original message.
         operationId: commentMessage
         security:
           - UserIdentifierAuth: []
@@ -1362,26 +1361,17 @@ paths:
                   content:
                     type: string
                     description: |
-                      The emoji reaction or reply text to add
+                      The emoji reaction to add
                     pattern: '^.{1,1000}$'
                     minLength: 1
                     maxLength: 1000
                     example: "\U0001F44D"
-                  interaction:
-                    type: string
-                    description: |
-                      The type of interaction being added
-                    enum: [reaction, reply]
-                    example: "reaction"
-                    minLength: 5
-                    maxLength: 8
                 required:
                   - content
-                  - interaction
         responses:
           "201": 
             description: |
-              Reaction or reply added successfully
+              Reaction added successfully
             content:
               application/json:
                 schema:
@@ -1392,7 +1382,7 @@ paths:
                     interactionId:
                       type: string
                       description: |
-                        Unique identifier of the newly added reaction or reply
+                        Unique identifier of the newly added reaction 
                       pattern: '^[a-zA-Z0-9_-]{10,30}$'
                       minLength: 10
                       maxLength: 30
@@ -1400,7 +1390,7 @@ paths:
                     messageId:
                       type: string
                       description: |
-                        Unique identifier of the message the reaction or reply was added to
+                        Unique identifier of the message the reaction was added to
                       pattern: '^[a-zA-Z0-9_-]{10,30}$'
                       minLength: 10
                       maxLength: 30
@@ -1408,12 +1398,12 @@ paths:
                     user:
                       type: object
                       description: |
-                        Details of the user who added the reaction or reply
+                        Details of the user who added the reaction 
                       properties:
                         username:
                           type: string
                           description: |
-                            Username of the user who added the reaction or reply
+                            Username of the user who added the reaction 
                           pattern: '^[a-zA-Z0-9_-]{3,16}$'
                           minLength: 3
                           maxLength: 16
@@ -1421,7 +1411,7 @@ paths:
                         userId:
                           type: string
                           description: |
-                            Unique identifier of the user who added the reaction or reply
+                            Unique identifier of the user who added the reaction 
                           pattern: '^[a-zA-Z0-9_-]{12}$'
                           minLength: 12
                           maxLength: 12
@@ -1429,19 +1419,11 @@ paths:
                     content:
                       type: string
                       description: |
-                        The content of the reaction or reply
-                      pattern: '^.{1,500}$'
+                        The content of the reaction 
+                      pattern: '^.{1,1000}$'
                       minLength: 1
-                      maxLength: 500
+                      maxLength: 1000
                       example: "\U0001F44D"
-                    interaction:
-                      type: string
-                      description: |
-                        The type of interaction
-                      enum: [reaction, reply]
-                      example: "reaction"
-                      minLength: 5
-                      maxLength: 8
                     timestamp:
                       type: string
                       format: date-time
@@ -1501,17 +1483,17 @@ paths:
           example: "int67890123"
     delete:
       tags: ["messages"]
-      summary: Remove a reaction or reply from a message
+      summary: Remove a reaction from a message
       description: |
-        Allows a user to remove their previously added reaction (emoji) or reply from a specific message. 
-        Only the user who added the reaction or reply can delete it. This operation is irreversible.
+        Allows a user to remove their previously added reaction (emoji) from a specific message. 
+        Only the user who added the reaction can delete it. This operation is irreversible.
       operationId: uncommentMessage
       security:
         - UserIdentifierAuth: []
       responses:
         "200":
           description: |
-            Reaction or reply removed successfully
+            Reaction removed successfully
           content:
             application/json:
               schema:
@@ -1522,7 +1504,7 @@ paths:
                   messageId:
                     type: string
                     description: |
-                      Unique identifier of the message from which the reaction or reply was removed
+                      Unique identifier of the message from which the reaction was removed
                     pattern: '^[a-zA-Z0-9_-]{10,30}$'
                     minLength: 10
                     maxLength: 30
@@ -1530,7 +1512,7 @@ paths:
                   interactionId:
                     type: string
                     description: |
-                      Unique identifier of the removed reaction or reply
+                      Unique identifier of the removed reaction
                     pattern: '^[a-zA-Z0-9_-]{10,30}$'
                     minLength: 10
                     maxLength: 30
@@ -1538,12 +1520,12 @@ paths:
                   user:
                     type: object
                     description: |
-                      Details of the user who removed the reaction or reply
+                      Details of the user who removed the reaction
                     properties:
                       username:
                         type: string
                         description: |
-                          Username of the user who removed the reaction or reply
+                          Username of the user who removed the reaction
                         pattern: '^[a-zA-Z0-9_-]{3,16}$'
                         minLength: 3
                         maxLength: 16
@@ -1551,24 +1533,16 @@ paths:
                       userId:
                         type: string
                         description: |
-                          Unique identifier of the user who removed the reaction or reply
+                          Unique identifier of the user who removed the reaction 
                         pattern: '^[a-zA-Z0-9_-]{12}$'
                         minLength: 12
                         maxLength: 12
                         example: "user27846379"
-                  type:
-                    type: string
-                    description: |
-                      The type of interaction that was removed
-                    enum: [reaction, reply]
-                    example: "reaction"
-                    minLength: 5
-                    maxLength: 8
                   removedAt:
                     type: string
                     format: date-time
                     description: |
-                      Date and time when the reaction or reply was removed
+                      Date and time when the reaction was removed
                     example: "2025-01-11T16:45:00Z"
                     minLength: 10
                     maxLength: 150
@@ -1576,7 +1550,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
           description: |
-            Forbidden - User is not the owner of the reaction or reply
+            Forbidden - User is not the owner of the reaction 
           content:
             application/json:
               schema:
@@ -1594,7 +1568,7 @@ paths:
                     maxLength: 100
         "404":
           description: |
-            Message or reaction/reply not found
+            Message or reaction not found
           content:
             application/json:
               schema:
@@ -1610,6 +1584,204 @@ paths:
                     pattern: '^[a-zA-Z0-9_ ]{10,100}$'
                     minLength: 10
                     maxLength: 100
+        "500": { $ref: "#/components/responses/InternalServerError" }
+  /messages/{messageId}/replies:
+    parameters:
+    - name: messageId
+      in: path
+      required: true
+      description: |
+        Unique identifier of the message to be deleted
+      schema:
+        type: string
+        description: |
+          Message Id
+        pattern: '^[a-zA-Z0-9_-]{10,30}$'
+        minLength: 10
+        maxLength: 30
+        example: "msg123456789"
+    post:
+      tags: ["messages"]
+      summary: Reply to message
+      description: |
+        Allows a user to reply to an existing message. Reply can be either text or photo 
+        and will be associated with the original message.
+      operationId: replyToMessage
+      security:
+        - UserIdentifierAuth: []
+      requestBody: 
+        description: |
+          Details of the reply
+        required: true
+        content: 
+          application/json: 
+            schema:
+              type: object
+              description: |
+                Reply details
+              properties: 
+                type: 
+                  type: string
+                  enum: [text]
+                  description: |
+                    type of reply
+                  example: "text"
+                  minLength: 4
+                  maxLength: 4
+                content: 
+                  type: string
+                  description: |
+                    The content of the reply.
+                  pattern: '^.{1,1000}$'
+                  minLength: 1
+                  maxLength: 1000
+                  example: "Thanks for your message!"
+              required:
+                - content
+                - type
+          multipart/form-data:
+            schema: 
+              type: object
+              description: |
+                Reply details for photo replies
+              properties: 
+                type: 
+                  type: string
+                  enum: [photo]
+                  description: |
+                    Type of reply.
+                  example: "photo"
+                  minLength: 5
+                  maxLength: 5
+                photo:
+                  type: string
+                  format: binary
+                  description: |
+                    The photo file to upload
+                  minLength: 100
+                  maxLength: 10485760
+              required:
+                - type
+                - photo
+      responses:
+        "201":
+          description: |
+            Reply sent successfully
+          content: 
+            application/json: 
+              schema: 
+                type: object
+                description: |
+                  Reply success response
+                properties:
+                  messageId: 
+                    type: string
+                    description: |
+                      Unique identifier of the newly sent reply
+                    pattern: '^[a-zA-Z0-9_-]{10,30}$'
+                    minLength: 10
+                    maxLength: 30
+                    example: "msg678906719"
+                  conversationId:
+                    type: string
+                    description: |
+                      Unique identifier of the conversation
+                    pattern: '^[a-zA-Z0-9_-]{6,20}$'
+                    minLength: 6
+                    maxLength: 20
+                    example: "chat40"
+                  parentMessageId:
+                    type: string
+                    description: |
+                      Unique identifier of the message being replied to
+                    pattern: '^[a-zA-Z0-9_-]{10,30}$'
+                    minLength: 10
+                    maxLength: 30
+                    example: "msg678906718"
+                  sender: 
+                    type: object
+                    description: | 
+                      Details of the reply sender
+                    properties: 
+                      username: 
+                        type: string
+                        description: |
+                          Username of the sender
+                        pattern: '^[a-zA-Z0-9_-]{3,16}$'
+                        minLength: 3
+                        maxLength: 16
+                        example: "Karen"
+                      userId:
+                        type: string
+                        description: |
+                          Unique identifier of the sender
+                        pattern: '^[a-zA-Z0-9_-]{12}$'
+                        minLength: 12
+                        maxLength: 12
+                        example: "user12758923"
+                  content:
+                    type: string
+                    description: |
+                      Content of the reply:
+                      - For `text`, this is the actual reply text.
+                      - For `photo`, this is a URL to fetch the actual photo data.
+                    pattern: "^[\\s\\S]*$"
+                    minLength: 1
+                    maxLength: 14000000
+                    example: "Thanks for your message!"
+                  contentType: 
+                    type: string
+                    description: |
+                      This is the MIME type of content.
+                    pattern: '^[a-zA-Z0-9.+-]+/[a-zA-Z0-9.+-]+$'
+                    example: "image/jpeg"
+                    minLength: 8
+                    maxLength: 100
+                  type: 
+                    type: string
+                    enum: [text, photo]
+                    description: |
+                      Type of the reply
+                    example: "text"
+                    minLength: 4
+                    maxLength: 5
+                  timestamp: 
+                    type: string
+                    format: date-time
+                    description: |
+                      Date and time when the reply was sent
+                    example: "2025-01-11T14:46:00Z"
+                    minLength: 10
+                    maxLength: 150
+                  status: 
+                    type: string
+                    enum: [delivered, read]
+                    description: |
+                      Current status of the reply
+                    example: "delivered"
+                    minLength: 4
+                    maxLength: 9
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: |
+            The specified message was not found
+          content:
+            application/json:
+              schema:
+                description: |
+                  Not found message 
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: |
+                      Error message
+                    example: "Message not found"
+                    pattern: '^[a-zA-Z0-9_ ]{10,100}$'
+                    minLength: 10
+                    maxLength: 100
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "500": { $ref: "#/components/responses/InternalServerError" }
   /messages/{messageId}/status:
     parameters:
