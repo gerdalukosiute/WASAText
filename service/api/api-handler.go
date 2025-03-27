@@ -17,19 +17,18 @@ func (rt *_router) Handler() http.Handler {
 	// updated, retest aswell
 	rt.router.POST("/conversations/:conversationId/messages", rt.withAuth(rt.handleSendMessage)) // Updated
 	rt.router.GET("/media/:mediaId", rt.withAuth(rt.handleGetMedia)) // Updated and tested
-	rt.router.PUT("/messages/:messageId/status", rt.withAuth(rt.handleUpdateMessageStatus))
-	rt.router.POST("/messages/:messageId/forward", rt.withAuth(rt.handleForwardMessage))
+	rt.router.POST("/messages/:messageId/forward", rt.withAuth(rt.handleForwardMessage)) // Updated, tested
+	rt.router.PUT("/messages/:messageId/status", rt.withAuth(rt.handleUpdateMessageStatus)) 
 	rt.router.DELETE("/messages/:messageId", rt.withAuth(rt.handleDeleteMessage))
 	rt.router.POST("/messages/:messageId/comments", rt.withAuth(rt.handleAddComment))
 	rt.router.DELETE("/messages/:messageId/comments/:commentId", rt.withAuth(rt.handleDeleteComment))
-	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
-	// After dealing with messages; should include also the replies
 	rt.router.GET("/groups", rt.withAuth(rt.handleGetMyGroups))
 	rt.router.POST("/groups/:groupId", rt.withAuth(rt.handleAddToGroup))
 	rt.router.DELETE("/groups/:groupId", rt.withAuth(rt.handleLeaveGroup))
 	rt.router.PUT("/groups/:groupId", rt.withAuth(rt.handleSetGroupName))
 	rt.router.PATCH("/groups/:groupId", rt.withAuth(rt.handleSetGroupPhoto))
-
+	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
+	// After dealing with messages and groups; should include also the replies
 	// Special routes
 	rt.router.GET("/liveness", rt.liveness)
 

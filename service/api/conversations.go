@@ -448,6 +448,119 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 	}
 }
 
+// Updated request and response structures for message forwarding
+type forwardMessageRequest struct {
+	TargetConversationID string `json:"targetConversationId"`
+}
+
+type forwardMessageResponse struct {
+	NewMessageID         string    `json:"newMessageId"`
+	OriginalMessageID    string    `json:"originalMessageId"`
+	TargetConversationID string    `json:"targetConversationId"`
+	OriginalSender       struct {
+		Username string `json:"username"`
+		UserID   string `json:"userId"`
+	} `json:"originalSender"`
+	ForwardedBy struct {
+		Username string `json:"username"`
+		UserID   string `json:"userId"`
+	} `json:"forwardedBy"`
+	Content            string    `json:"content"`
+	Type               string    `json:"type"`
+	OriginalTimestamp  string    `json:"originalTimestamp"`
+	ForwardedTimestamp string    `json:"forwardedTimestamp"`
+}
+
+func (rt *_router) handleForwardMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
+	messageID := ps.ByName("messageId")
+	
+	ctx.Logger.WithFields(logrus.Fields{
+		"userID":    userID,
+		"messageID": messageID,
+	}).Info("Handling forward message request")
+
+	var req forwardMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to decode request body")
+		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.TargetConversationID == "" {
+		ctx.Logger.Error("Missing required fields in request")
+		sendJSONError(w, "Missing required fields", http.StatusBadRequest)
+		return
+	}
+
+	// Forward the message
+	forwardedMessage, err := rt.db.ForwardMessage(messageID, req.TargetConversationID, userID)
+	if err != nil {
+		var statusCode int
+		var errorMessage string
+		
+		if errors.Is(err, database.ErrMessageNotFound) {
+			statusCode = http.StatusNotFound
+			errorMessage = "Original message not found"
+		} else if errors.Is(err, database.ErrConversationNotFound) {
+			statusCode = http.StatusNotFound
+			errorMessage = "Target conversation not found"
+		} else if errors.Is(err, database.ErrUnauthorized) {
+			statusCode = http.StatusForbidden
+			errorMessage = "No permission to forward"
+		} else {
+			statusCode = http.StatusInternalServerError
+			errorMessage = "Internal server error"
+		}
+		
+		ctx.Logger.WithError(err).Error(errorMessage)
+		sendJSONError(w, errorMessage, statusCode)
+		return
+	}
+
+	// Get the forwarder's name
+	forwarderName, err := rt.db.GetUserNameByID(userID)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to get forwarder's name")
+		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Create the response according to the documentation
+	response := forwardMessageResponse{
+		NewMessageID:         forwardedMessage.ID,
+		OriginalMessageID:    messageID,
+		TargetConversationID: req.TargetConversationID,
+		OriginalSender: struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		}{
+			Username: forwardedMessage.OriginalSender.Name,
+			UserID:   forwardedMessage.OriginalSender.ID,
+		},
+		ForwardedBy: struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		}{
+			Username: forwarderName,
+			UserID:   userID,
+		},
+		Content:            forwardedMessage.Content,
+		Type:               forwardedMessage.Type,
+		OriginalTimestamp:  forwardedMessage.OriginalTimestamp.Format(time.RFC3339),
+		ForwardedTimestamp: forwardedMessage.Timestamp.Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to encode response")
+		return
+	}
+}
+
+// Updated above
+
 func convertMessages(dbMessages []database.Message) []MessageResponse {
 	messages := make([]MessageResponse, len(dbMessages))
 	for i, m := range dbMessages {
@@ -596,80 +709,6 @@ func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Requ
 	response := convertedMessages[0]
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-type forwardMessageRequest struct {
-	OriginalMessageID    string `json:"originalMessageId"`
-	TargetConversationID string `json:"targetConversationId"`
-}
-
-type forwardMessageResponse struct {
-	NewMessageID         string    `json:"newMessageId"`
-	OriginalMessageID    string    `json:"originalMessageId"`
-	TargetConversationID string    `json:"targetConversationId"`
-	Sender               string    `json:"sender"`
-	Content              string    `json:"content"`
-	MessageType          string    `json:"messageType"`
-	Timestamp            time.Time `json:"timestamp"`
-}
-
-func (rt *_router) handleForwardMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	ctx.Logger.WithFields(logrus.Fields{
-		"userID":    userID,
-		"messageID": ps.ByName("messageId"),
-	}).Info("Handling forward message request")
-
-	var req forwardMessageRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		ctx.Logger.WithError(err).Error("Failed to decode request body")
-		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Validate request
-	if req.OriginalMessageID == "" || req.TargetConversationID == "" {
-		ctx.Logger.Error("Missing required fields in request")
-		sendJSONError(w, "Missing required fields", http.StatusBadRequest)
-		return
-	}
-
-	// Forward the message
-	newMessage, err := rt.db.ForwardMessage(req.OriginalMessageID, req.TargetConversationID, userID)
-	if err != nil {
-		var statusCode int
-		var errorMessage string
-		switch err {
-		case database.ErrMessageNotFound:
-			statusCode = http.StatusNotFound
-			errorMessage = "Original message not found"
-		case database.ErrConversationNotFound:
-			statusCode = http.StatusNotFound
-			errorMessage = "Target conversation not found"
-		case database.ErrUnauthorized:
-			statusCode = http.StatusForbidden
-			errorMessage = "Unauthorized to forward this message"
-		default:
-			statusCode = http.StatusInternalServerError
-			errorMessage = "Internal server error"
-		}
-		ctx.Logger.WithError(err).Error(errorMessage)
-		sendJSONError(w, errorMessage, statusCode)
-		return
-	}
-
-	response := forwardMessageResponse{
-		NewMessageID:         newMessage.ID,
-		OriginalMessageID:    req.OriginalMessageID,
-		TargetConversationID: req.TargetConversationID,
-		Sender:               newMessage.Sender,
-		Content:              newMessage.Content,
-		MessageType:          newMessage.Type,
-		Timestamp:            newMessage.Timestamp,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
 }
 

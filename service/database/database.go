@@ -33,7 +33,9 @@ type AppDatabase interface {
 	// Rest not updated
 	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
 	GetComments(messageID string) ([]Comment, error)
-	ForwardMessage(originalMessageID, targetConversationID, userID string) (*Message, error)
+	ForwardMessage(originalMessageID, targetConversationID, userID string) (*ForwardedMessage, error)
+	IsUserAuthorized(userID string, messageID string) (bool, error) 
+	ConversationExists(conversationID string) (bool, error)
 	DeleteMessage(messageID, userID string) (*Message, error)
 	AddComment(messageID, userID, content string) (*Comment, error)
 	DeleteComment(messageID, commentID, userID string) error
@@ -77,20 +79,38 @@ type Participant struct {
 	Name string
 }
 
-// Updated Message struct (includes parent message ID)
+// Update the Message struct to include forwarding information
 type Message struct {
-	ID             string
-	SenderID       string
-	Sender         string
-	Type           string
-	Content        string
-	ContentType    string
-	Icon           string
-	Timestamp      time.Time
-	Status         string
-	Comments       []Comment
-	ParentMessageID *string
- } 
+	ID               string
+	SenderID         string
+	Sender           string
+	Type             string
+	Content          string
+	ContentType      string
+	Icon             string
+	Timestamp        time.Time
+	Status           string
+	Comments         []Comment
+	ParentMessageID  *string
+	IsForwarded      bool
+	OriginalSender   *User
+	OriginalTimestamp time.Time
+}
+
+
+// Add a new struct for forwarded message details
+type ForwardedMessage struct {
+	ID               string
+	SenderID         string
+	Sender           string
+	Type             string
+	Content          string
+	ContentType      string
+	Timestamp        time.Time
+	Status           string
+	OriginalSender   User
+	OriginalTimestamp time.Time
+}
 
 // Comment represents a comment on a message
 type Comment struct {
@@ -190,9 +210,13 @@ func createTables(db *sql.DB) error {
 			created_at DATETIME NOT NULL,
 			status TEXT NOT NULL,
 			parent_message_id TEXT,
+			is_forwarded BOOLEAN DEFAULT 0,
+			original_sender_id TEXT,
+			original_timestamp DATETIME,
 			FOREIGN KEY (conversation_id) REFERENCES conversations(id),
 			FOREIGN KEY (sender_id) REFERENCES users(id),
-			FOREIGN KEY (parent_message_id) REFERENCES messages(id)
+			FOREIGN KEY (parent_message_id) REFERENCES messages(id),
+			FOREIGN KEY (original_sender_id) REFERENCES users(id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS message_read_status (
     		message_id TEXT,

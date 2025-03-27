@@ -525,9 +525,9 @@ func (db *appdbimpl) GenerateMessageID() (string, error) {
 	// If we couldn't generate a unique ID after 10 attempts, return an error
 	return "", fmt.Errorf("failed to generate a unique message ID after multiple attempts")
 }
-// UPDATED TO THIS POINT (needs additional endpoints for photo messages)
 
-func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, userID string) (*Message, error) {
+// Updated ForwardMessage function 
+func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, userID string) (*ForwardedMessage, error) {
 	// Check if the original message exists
 	var originalMessageExists bool
 	err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?)", originalMessageID).Scan(&originalMessageExists)
@@ -539,7 +539,7 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 	}
 
 	// Check if the user is part of the original conversation
-	isAuthorized, err := db.isUserAuthorized(userID, originalMessageID)
+	isAuthorized, err := db.IsUserAuthorized(userID, originalMessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -548,7 +548,7 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 	}
 
 	// Check if the target conversation exists
-	exists, err := db.conversationExists(targetConversationID)
+	exists, err := db.ConversationExists(targetConversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -561,26 +561,48 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction: %w", err)
 	}
-	defer tx.Rollback()
+	
+	// Ensure transaction is rolled back if an error occurs
+	defer func() {
+		if tx != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				// Just log the rollback error, don't override the original error
+				logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+			}
+		}
+	}()
 
-	// Fetch the original message
-	var originalMessage Message
+
+	// Fetch the original message with sender information
+	var originalMessage struct {
+		ID          string
+		SenderID    string
+		SenderName  string
+		Type        string
+		Content     string
+		ContentType string
+		Timestamp   time.Time
+		Status      string
+	}
+	
 	err = tx.QueryRow(`
-        SELECT m.id, m.sender_id, u.name, m.type, m.content, m.created_at, m.status
-        FROM messages m
-        JOIN users u ON m.sender_id = u.id
-        WHERE m.id = ?
-    `, originalMessageID).Scan(
+		SELECT m.id, m.sender_id, u.name, m.type, m.content, m.content_type, m.created_at, m.status
+		FROM messages m
+		JOIN users u ON m.sender_id = u.id
+		WHERE m.id = ?
+	`, originalMessageID).Scan(
 		&originalMessage.ID,
 		&originalMessage.SenderID,
-		&originalMessage.Sender,
+		&originalMessage.SenderName,
 		&originalMessage.Type,
 		&originalMessage.Content,
+		&originalMessage.ContentType,
 		&originalMessage.Timestamp,
 		&originalMessage.Status,
 	)
+	
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrMessageNotFound
 		}
 		return nil, fmt.Errorf("error fetching original message: %w", err)
@@ -596,12 +618,37 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 		return nil, ErrUnauthorized
 	}
 
-	// Create the new forwarded message
-	newMessageID := uuid.Must(uuid.NewV4()).String()
+	// Generate a new message ID
+	newMessageID, err := db.GenerateMessageID()
+	if err != nil {
+		return nil, fmt.Errorf("error generating message ID: %w", err)
+	}
+	
+	// Current time for the forwarded timestamp
+	now := time.Now()
+
+
+	// Insert the new forwarded message
 	_, err = tx.Exec(`
-        INSERT INTO messages (id, conversation_id, sender_id, type, content, created_at, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, newMessageID, targetConversationID, userID, originalMessage.Type, originalMessage.Content, time.Now(), "sent")
+		INSERT INTO messages (
+			id, conversation_id, sender_id, type, content, content_type, 
+			created_at, status, is_forwarded, original_sender_id, original_timestamp
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, 
+		newMessageID, 
+		targetConversationID, 
+		userID, 
+		originalMessage.Type, 
+		originalMessage.Content, 
+		originalMessage.ContentType, 
+		now, 
+		"delivered", 
+		true, 
+		originalMessage.SenderID, 
+		originalMessage.Timestamp,
+	)
+	
 	if err != nil {
 		return nil, fmt.Errorf("error inserting forwarded message: %w", err)
 	}
@@ -610,38 +657,60 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("error committing transaction: %w", err)
 	}
+	
+	// Set tx to nil to prevent rollback in defer function
+	tx = nil
 
-	// Fetch the newly created message
-	var newMessage Message
-	err = db.c.QueryRow(`
-        SELECT m.id, m.sender_id, u.name, m.type, m.content, m.created_at, m.status
-        FROM messages m
-        JOIN users u ON m.sender_id = u.id
-        WHERE m.id = ?
-    `, newMessageID).Scan(
-		&newMessage.ID,
-		&newMessage.SenderID,
-		&newMessage.Sender,
-		&newMessage.Type,
-		&newMessage.Content,
-		&newMessage.Timestamp,
-		&newMessage.Status,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching new message: %w", err)
+	// Create the forwarded message response
+	forwardedMessage := &ForwardedMessage{
+		ID:               newMessageID,
+		SenderID:         userID,
+		Type:             originalMessage.Type,
+		Content:          originalMessage.Content,
+		ContentType:      originalMessage.ContentType,
+		Timestamp:        now,
+		Status:           "delivered",
+		OriginalSender: User{
+			ID:   originalMessage.SenderID,
+			Name: originalMessage.SenderName,
+		},
+		OriginalTimestamp: originalMessage.Timestamp,
 	}
 
-	return &newMessage, nil
+
+	return forwardedMessage, nil
 }
 
-func (db *appdbimpl) conversationExists(conversationID string) (bool, error) {
+// Checks if user is authorized to forward
+func (db *appdbimpl) IsUserAuthorized(userID string, messageID string) (bool, error) {
+	var count int
+	err := db.c.QueryRow(`
+		SELECT COUNT(*)
+		FROM messages m
+		JOIN user_conversations uc ON m.conversation_id = uc.conversation_id
+		WHERE m.id = ? AND uc.user_id = ?
+	`, messageID, userID).Scan(&count)
+
+
+	if err != nil {
+		return false, fmt.Errorf("error checking user authorization: %w", err)
+	}
+
+
+	return count > 0, nil
+}
+
+// Checks if conversation exists (for forwarding)
+func (db *appdbimpl) ConversationExists(conversationID string) (bool, error) {
 	var count int
 	err := db.c.QueryRow("SELECT COUNT(*) FROM conversations WHERE id = ?", conversationID).Scan(&count)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("error checking conversation existence: %w", err)
 	}
 	return count > 0, nil
 }
+
+// UPDATED TO THIS POINT 
 
 func (db *appdbimpl) DeleteMessage(messageID, userID string) (*Message, error) {
 	var messageToDelete Message
@@ -841,22 +910,6 @@ func (db *appdbimpl) GetMessageByID(messageID string) (*Message, error) {
 	return &msg, nil
 }
 
-func (db *appdbimpl) isUserAuthorized(userID string, messageID string) (bool, error) {
-	var count int
-	err := db.c.QueryRow(`
-		SELECT COUNT(*) 
-		FROM messages m
-		JOIN user_conversations uc ON m.conversation_id = uc.conversation_id
-		WHERE m.id = ? AND uc.user_id = ?
-	`, messageID, userID).Scan(&count)
-
-	if err != nil {
-		return false, fmt.Errorf("error checking user authorization: %w", err)
-	}
-
-	return count > 0, nil
-}
-
 func (db *appdbimpl) AddComment(messageID, userID, content string) (*Comment, error) {
 	// Start a transaction
 	tx, err := db.c.Begin()
@@ -876,7 +929,7 @@ func (db *appdbimpl) AddComment(messageID, userID, content string) (*Comment, er
 	}
 
 	// Check if the user is authorized to comment on this message
-	isAuthorized, err := db.isUserAuthorized(userID, messageID)
+	isAuthorized, err := db.IsUserAuthorized(userID, messageID)
 	if err != nil {
 		return nil, fmt.Errorf("error checking user authorization: %w", err)
 	}
@@ -958,7 +1011,7 @@ func (db *appdbimpl) DeleteComment(messageID, commentID, userID string) error {
 	defer tx.Rollback() // Rollback the transaction if it's not committed
 
 	// Check if the user is authorized to access the message
-	isAuthorized, err := db.isUserAuthorized(userID, messageID)
+	isAuthorized, err := db.IsUserAuthorized(userID, messageID)
 	if err != nil {
 		return fmt.Errorf("error checking user authorization: %w", err)
 	}
