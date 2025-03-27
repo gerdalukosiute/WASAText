@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"unicode"
 	"errors"
 	"io"
 
@@ -559,6 +560,135 @@ func (rt *_router) handleForwardMessage(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// Updated handler for adding emoji reactions to messages
+func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
+	messageID := ps.ByName("messageId")
+
+	ctx.Logger.WithFields(logrus.Fields{
+		"messageID": messageID,
+		"userID":    userID,
+	}).Info("Attempting to add emoji reaction to message")
+
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to decode request body")
+		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Content == "" {
+		ctx.Logger.Error("Empty content provided")
+		sendJSONError(w, "Content cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	// Validate that the content is an emoji
+	if !isValidEmoji(req.Content) {
+		ctx.Logger.WithField("content", req.Content).Error("Invalid emoji provided")
+		sendJSONError(w, "Content must be a valid emoji", http.StatusBadRequest)
+		return
+	}
+
+	// Add the emoji reaction
+	comment, err := rt.db.AddComment(messageID, userID, req.Content)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to add emoji reaction")
+		
+		if errors.Is(err, database.ErrUnauthorized) {
+			sendJSONError(w, "Unauthorized to add reaction to this message", http.StatusUnauthorized)
+			return
+		} else if errors.Is(err, database.ErrMessageNotFound) {
+			sendJSONError(w, "Message not found", http.StatusNotFound)
+			return
+		} else {
+			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Get the username for the response
+	username, err := rt.db.GetUserNameByID(userID)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to get username")
+		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	ctx.Logger.WithFields(logrus.Fields{
+		"interactionId": comment.ID,
+		"messageID": comment.MessageID,
+		"userID":    comment.UserID,
+		"content":   comment.Content,
+	}).Info("Emoji reaction added successfully")
+
+	// Create the response according to the documentation
+	response := struct {
+		InteractionID string `json:"interactionId"`
+		MessageID     string `json:"messageId"`
+		User          struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		} `json:"user"`
+		Content   string `json:"content"`
+		Timestamp string `json:"timestamp"`
+	}{
+		InteractionID: comment.ID,
+		MessageID:     comment.MessageID,
+		User: struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		}{
+			Username: username,
+			UserID:   comment.UserID,
+		},
+		Content:   comment.Content,
+		Timestamp: comment.Timestamp.Format(time.RFC3339),
+	}
+
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to encode response")
+		return
+	}
+}
+
+// isValidEmoji checks if the provided string is a valid emoji
+func isValidEmoji(s string) bool {
+	// Simple validation for common emoji patterns
+	
+	// Check if the string is too long to be an emoji
+	if utf8.RuneCountInString(s) > 8 {
+		return false
+	}
+	
+	// Check if the string contains any ASCII characters (which are not emojis)
+	for _, r := range s {
+		if r < 128 && !unicode.IsSpace(r) {
+			return false
+		}
+	}
+	
+	// Check if the string contains at least one emoji-like character
+	hasEmojiChar := false
+	for _, r := range s {
+		// Emoji ranges (this is a simplified check)
+		if (r >= 0x1F300 && r <= 0x1F6FF) || // Miscellaneous Symbols and Pictographs
+			(r >= 0x2600 && r <= 0x26FF) || // Miscellaneous Symbols
+			(r >= 0x2700 && r <= 0x27BF) || // Dingbats
+			(r >= 0x1F900 && r <= 0x1F9FF) || // Supplemental Symbols and Pictographs
+			(r >= 0x1FA70 && r <= 0x1FAFF) { // Symbols and Pictographs Extended-A
+			hasEmojiChar = true
+			break
+		}
+	}
+	
+	return hasEmojiChar
+}
+
 // Updated above
 
 func convertMessages(dbMessages []database.Message) []MessageResponse {
@@ -754,76 +884,6 @@ func (rt *_router) handleDeleteMessage(w http.ResponseWriter, r *http.Request, p
 type deleteMessageResponse struct {
 	MessageID string `json:"messageId"`
 	Username  string `json:"username"`
-}
-
-func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	messageID := ps.ByName("messageId")
-
-	ctx.Logger.WithFields(logrus.Fields{
-		"messageID": messageID,
-		"userID":    userID,
-	}).Info("Attempting to add comment or emoji reaction")
-
-	var req struct {
-		Content string `json:"content"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		ctx.Logger.WithError(err).Error("Failed to decode request body")
-		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.Content == "" {
-		ctx.Logger.Error("Empty content provided")
-		sendJSONError(w, "Content cannot be empty", http.StatusBadRequest)
-		return
-	}
-
-	runeCount := utf8.RuneCountInString(req.Content)
-	if runeCount > 2 || (runeCount == 2 && req.Content != "❤️") {
-		ctx.Logger.Error("Invalid emoji: not a valid single character or heart emoji")
-		sendJSONError(w, "Invalid emoji: must be a single character or heart emoji", http.StatusBadRequest)
-		return
-	}
-
-	comment, err := rt.db.AddComment(messageID, userID, req.Content)
-	if err != nil {
-		ctx.Logger.WithError(err).Error("Failed to add comment or emoji reaction")
-		switch {
-		case err.Error() == "user not authorized to comment on this message":
-			sendJSONError(w, "Unauthorized", http.StatusUnauthorized)
-		case err.Error() == "message not found":
-			sendJSONError(w, "Message not found", http.StatusNotFound)
-		default:
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		}
-		return
-	}
-
-	ctx.Logger.WithFields(logrus.Fields{
-		"commentID": comment.ID,
-		"messageID": comment.MessageID,
-		"userID":    comment.UserID,
-		"content":   comment.Content,
-	}).Info("Comment or emoji reaction added successfully")
-
-	response := struct {
-		CommentID string    `json:"commentId"`
-		MessageID string    `json:"messageId"`
-		UserID    string    `json:"userId"`
-		Content   string    `json:"content"`
-		Timestamp time.Time `json:"timestamp"`
-	}{
-		CommentID: comment.ID,
-		MessageID: comment.MessageID,
-		UserID:    comment.UserID,
-		Content:   comment.Content,
-		Timestamp: comment.Timestamp,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
 }
 
 func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {

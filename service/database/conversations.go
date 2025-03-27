@@ -4,12 +4,10 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
-	"unicode/utf8"
 	"errors"
 	"math/rand"
 	"log"
 
-	"github.com/gofrs/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -681,7 +679,7 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 	return forwardedMessage, nil
 }
 
-// Checks if user is authorized to forward
+// Checks if user is authorized to interact with message
 func (db *appdbimpl) IsUserAuthorized(userID string, messageID string) (bool, error) {
 	var count int
 	err := db.c.QueryRow(`
@@ -708,6 +706,109 @@ func (db *appdbimpl) ConversationExists(conversationID string) (bool, error) {
 		return false, fmt.Errorf("error checking conversation existence: %w", err)
 	}
 	return count > 0, nil
+}
+
+// Updated AddComment function to handle emoji reactions
+func (db *appdbimpl) AddComment(messageID, userID, content string) (*Comment, error) {
+	// Start a transaction
+	tx, err := db.c.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("error starting transaction: %w", err)
+	}
+	
+	// Ensure transaction is rolled back if an error occurs
+	defer func() {
+		if tx != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				// Just log the rollback error, don't override the original error
+				logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+			}
+		}
+	}()
+
+
+	// Check if the message exists
+	var exists bool
+	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?)", messageID).Scan(&exists)
+	if err != nil {
+		return nil, fmt.Errorf("error checking message existence: %w", err)
+	}
+	if !exists {
+		return nil, ErrMessageNotFound
+	}
+
+
+	// Check if the user is authorized to comment on this message
+	isAuthorized, err := db.IsUserAuthorized(userID, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("error checking user authorization: %w", err)
+	}
+	if !isAuthorized {
+		return nil, ErrUnauthorized
+	}
+
+
+	// Generate a unique interaction ID that matches the pattern ^[a-zA-Z0-9_-]{10,30}$
+	interactionID := fmt.Sprintf("int%d", time.Now().UnixNano())
+	if len(interactionID) > 30 {
+		interactionID = interactionID[:30]
+	}
+	
+	timestamp := time.Now().UTC()
+
+
+	// Check if the user has already reacted to this message
+	var existingCommentID string
+	err = tx.QueryRow(`
+		SELECT id FROM comments
+		WHERE message_id = ? AND user_id = ?
+	`, messageID, userID).Scan(&existingCommentID)
+
+
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("error checking existing reaction: %w", err)
+	}
+
+
+	if existingCommentID != "" {
+		// Update existing reaction
+		_, err = tx.Exec(`
+			UPDATE comments
+			SET content = ?, created_at = ?
+			WHERE id = ?
+		`, content, timestamp, existingCommentID)
+		if err != nil {
+			return nil, fmt.Errorf("error updating existing reaction: %w", err)
+		}
+		interactionID = existingCommentID
+	} else {
+		// Insert new reaction
+		_, err = tx.Exec(`
+			INSERT INTO comments (id, message_id, user_id, content, created_at)
+			VALUES (?, ?, ?, ?, ?)
+		`, interactionID, messageID, userID, content, timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("error inserting new reaction: %w", err)
+		}
+	}
+
+
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("error committing transaction: %w", err)
+	}
+	
+	// Set tx to nil to prevent rollback in defer function
+	tx = nil
+
+
+	return &Comment{
+		ID:        interactionID,
+		MessageID: messageID,
+		UserID:    userID,
+		Content:   content,
+		Timestamp: timestamp,
+	}, nil
 }
 
 // UPDATED TO THIS POINT 
@@ -910,98 +1011,6 @@ func (db *appdbimpl) GetMessageByID(messageID string) (*Message, error) {
 	return &msg, nil
 }
 
-func (db *appdbimpl) AddComment(messageID, userID, content string) (*Comment, error) {
-	// Start a transaction
-	tx, err := db.c.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("error starting transaction: %w", err)
-	}
-	defer tx.Rollback() // Rollback the transaction if it's not committed
-
-	// Check if the message exists
-	var exists bool
-	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?)", messageID).Scan(&exists)
-	if err != nil {
-		return nil, fmt.Errorf("error checking message existence: %w", err)
-	}
-	if !exists {
-		return nil, fmt.Errorf("message not found")
-	}
-
-	// Check if the user is authorized to comment on this message
-	isAuthorized, err := db.IsUserAuthorized(userID, messageID)
-	if err != nil {
-		return nil, fmt.Errorf("error checking user authorization: %w", err)
-	}
-	if !isAuthorized {
-		return nil, fmt.Errorf("user not authorized to comment on this message")
-	}
-
-	isEmoji := utf8.RuneCountInString(content) <= 2 // Allow for heart emoji (2 runes)
-
-	var commentID string
-	timestamp := time.Now().UTC()
-
-	if isEmoji {
-		// Check if the user has already reacted to this message
-		var existingCommentID string
-		err = tx.QueryRow(`
-			SELECT id FROM comments 
-			WHERE message_id = ? AND user_id = ? AND LENGTH(content) <= 4
-		`, messageID, userID).Scan(&existingCommentID)
-
-		if err != nil && err != sql.ErrNoRows {
-			return nil, fmt.Errorf("error checking existing reaction: %w", err)
-		}
-
-		if existingCommentID != "" {
-			// Update existing reaction
-			_, err = tx.Exec(`
-				UPDATE comments 
-				SET content = ?, created_at = ?
-				WHERE id = ?
-			`, content, timestamp, existingCommentID)
-			if err != nil {
-				return nil, fmt.Errorf("error updating existing reaction: %w", err)
-			}
-			commentID = existingCommentID
-		} else {
-			// Insert new reaction
-			commentID = uuid.Must(uuid.NewV4()).String()
-			_, err = tx.Exec(`
-				INSERT INTO comments (id, message_id, user_id, content, created_at)
-				VALUES (?, ?, ?, ?, ?)
-			`, commentID, messageID, userID, content, timestamp)
-			if err != nil {
-				return nil, fmt.Errorf("error inserting new reaction: %w", err)
-			}
-		}
-	} else {
-		// Insert the new comment
-		commentID = uuid.Must(uuid.NewV4()).String()
-		_, err = tx.Exec(`
-			INSERT INTO comments (id, message_id, user_id, content, created_at)
-			VALUES (?, ?, ?, ?, ?)
-		`, commentID, messageID, userID, content, timestamp)
-		if err != nil {
-			return nil, fmt.Errorf("error inserting comment: %w", err)
-		}
-	}
-
-	// Commit the transaction
-	if err = tx.Commit(); err != nil {
-		return nil, fmt.Errorf("error committing transaction: %w", err)
-	}
-
-	return &Comment{
-		ID:        commentID,
-		MessageID: messageID,
-		UserID:    userID,
-		Content:   content,
-		Timestamp: timestamp,
-	}, nil
-}
-
 func (db *appdbimpl) DeleteComment(messageID, commentID, userID string) error {
 	// Start a transaction
 	tx, err := db.c.Begin()
@@ -1143,6 +1152,7 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 	return &details, nil
 }
 
+// Called in conversation details, deal with later
 func (db *appdbimpl) GetComments(messageID string) ([]Comment, error) {
 	rows, err := db.c.Query(`
 		SELECT c.id, c.message_id, c.user_id, u.name, c.content, c.created_at

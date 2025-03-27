@@ -20,7 +20,7 @@ func (rt *_router) Handler() http.Handler {
 	rt.router.POST("/messages/:messageId/forward", rt.withAuth(rt.handleForwardMessage)) // Updated, tested
 	rt.router.PUT("/messages/:messageId/status", rt.withAuth(rt.handleUpdateMessageStatus)) 
 	rt.router.DELETE("/messages/:messageId", rt.withAuth(rt.handleDeleteMessage))
-	rt.router.POST("/messages/:messageId/comments", rt.withAuth(rt.handleAddComment))
+	rt.router.POST("/messages/:messageId/comments", rt.withAuth(rt.handleAddComment)) // Updated, works currently, test after fixing details
 	rt.router.DELETE("/messages/:messageId/comments/:commentId", rt.withAuth(rt.handleDeleteComment))
 	rt.router.GET("/groups", rt.withAuth(rt.handleGetMyGroups))
 	rt.router.POST("/groups/:groupId", rt.withAuth(rt.handleAddToGroup))
