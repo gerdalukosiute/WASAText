@@ -830,6 +830,14 @@ paths:
                   minLength: 1
                   maxLength: 1000
                   example: "Hi, how are you doing today?"
+                parentMessageId:
+                  type: string
+                  description: |
+                    Optional ID of the message this is replying to. If provided, this message will be treated as a reply.
+                  pattern: '^[a-zA-Z0-9_-]{10,30}$'
+                  minLength: 10
+                  maxLength: 30
+                  example: "msg678906718"
               required:
                 - content
                 - type
@@ -853,7 +861,15 @@ paths:
                   description: |
                     The photo file to upload
                   minLength: 100
-                  maxLength: 10485760 
+                  maxLength: 10485760
+                parentMessageId:
+                  type: string
+                  description: |
+                    Optional ID of the message this is replying to. If provided, this message will be treated as a reply.
+                  pattern: '^[a-zA-Z0-9_-]{10,30}$'
+                  minLength: 10
+                  maxLength: 30
+                  example: "msg678906718"
               required: 
                 - type
                 - photo
@@ -884,6 +900,15 @@ paths:
                     minLength: 6
                     maxLength: 20
                     example: "chat40"
+                  parentMessageId:
+                    type: string
+                    description: |
+                      ID of the message this is replying to. Only present for reply messages.
+                    pattern: '^[a-zA-Z0-9_-]{10,30}$'
+                    minLength: 10
+                    maxLength: 30
+                    example: "msg678906700"
+                    nullable: true
                   sender:
                     type: object
                     description: |
@@ -1584,204 +1609,6 @@ paths:
                     pattern: '^[a-zA-Z0-9_ ]{10,100}$'
                     minLength: 10
                     maxLength: 100
-        "500": { $ref: "#/components/responses/InternalServerError" }
-  /messages/{messageId}/replies:
-    parameters:
-    - name: messageId
-      in: path
-      required: true
-      description: |
-        Unique identifier of the message to be deleted
-      schema:
-        type: string
-        description: |
-          Message Id
-        pattern: '^[a-zA-Z0-9_-]{10,30}$'
-        minLength: 10
-        maxLength: 30
-        example: "msg123456789"
-    post:
-      tags: ["messages"]
-      summary: Reply to message
-      description: |
-        Allows a user to reply to an existing message. Reply can be either text or photo 
-        and will be associated with the original message.
-      operationId: replyToMessage
-      security:
-        - UserIdentifierAuth: []
-      requestBody: 
-        description: |
-          Details of the reply
-        required: true
-        content: 
-          application/json: 
-            schema:
-              type: object
-              description: |
-                Reply details
-              properties: 
-                type: 
-                  type: string
-                  enum: [text]
-                  description: |
-                    type of reply
-                  example: "text"
-                  minLength: 4
-                  maxLength: 4
-                content: 
-                  type: string
-                  description: |
-                    The content of the reply.
-                  pattern: '^.{1,1000}$'
-                  minLength: 1
-                  maxLength: 1000
-                  example: "Thanks for your message!"
-              required:
-                - content
-                - type
-          multipart/form-data:
-            schema: 
-              type: object
-              description: |
-                Reply details for photo replies
-              properties: 
-                type: 
-                  type: string
-                  enum: [photo]
-                  description: |
-                    Type of reply.
-                  example: "photo"
-                  minLength: 5
-                  maxLength: 5
-                photo:
-                  type: string
-                  format: binary
-                  description: |
-                    The photo file to upload
-                  minLength: 100
-                  maxLength: 10485760
-              required:
-                - type
-                - photo
-      responses:
-        "201":
-          description: |
-            Reply sent successfully
-          content: 
-            application/json: 
-              schema: 
-                type: object
-                description: |
-                  Reply success response
-                properties:
-                  messageId: 
-                    type: string
-                    description: |
-                      Unique identifier of the newly sent reply
-                    pattern: '^[a-zA-Z0-9_-]{10,30}$'
-                    minLength: 10
-                    maxLength: 30
-                    example: "msg678906719"
-                  conversationId:
-                    type: string
-                    description: |
-                      Unique identifier of the conversation
-                    pattern: '^[a-zA-Z0-9_-]{6,20}$'
-                    minLength: 6
-                    maxLength: 20
-                    example: "chat40"
-                  parentMessageId:
-                    type: string
-                    description: |
-                      Unique identifier of the message being replied to
-                    pattern: '^[a-zA-Z0-9_-]{10,30}$'
-                    minLength: 10
-                    maxLength: 30
-                    example: "msg678906718"
-                  sender: 
-                    type: object
-                    description: | 
-                      Details of the reply sender
-                    properties: 
-                      username: 
-                        type: string
-                        description: |
-                          Username of the sender
-                        pattern: '^[a-zA-Z0-9_-]{3,16}$'
-                        minLength: 3
-                        maxLength: 16
-                        example: "Karen"
-                      userId:
-                        type: string
-                        description: |
-                          Unique identifier of the sender
-                        pattern: '^[a-zA-Z0-9_-]{12}$'
-                        minLength: 12
-                        maxLength: 12
-                        example: "user12758923"
-                  content:
-                    type: string
-                    description: |
-                      Content of the reply:
-                      - For `text`, this is the actual reply text.
-                      - For `photo`, this is a URL to fetch the actual photo data.
-                    pattern: "^[\\s\\S]*$"
-                    minLength: 1
-                    maxLength: 14000000
-                    example: "Thanks for your message!"
-                  contentType: 
-                    type: string
-                    description: |
-                      This is the MIME type of content.
-                    pattern: '^[a-zA-Z0-9.+-]+/[a-zA-Z0-9.+-]+$'
-                    example: "image/jpeg"
-                    minLength: 8
-                    maxLength: 100
-                  type: 
-                    type: string
-                    enum: [text, photo]
-                    description: |
-                      Type of the reply
-                    example: "text"
-                    minLength: 4
-                    maxLength: 5
-                  timestamp: 
-                    type: string
-                    format: date-time
-                    description: |
-                      Date and time when the reply was sent
-                    example: "2025-01-11T14:46:00Z"
-                    minLength: 10
-                    maxLength: 150
-                  status: 
-                    type: string
-                    enum: [delivered, read]
-                    description: |
-                      Current status of the reply
-                    example: "delivered"
-                    minLength: 4
-                    maxLength: 9
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404":
-          description: |
-            The specified message was not found
-          content:
-            application/json:
-              schema:
-                description: |
-                  Not found message 
-                type: object
-                properties:
-                  error:
-                    type: string
-                    description: |
-                      Error message
-                    example: "Message not found"
-                    pattern: '^[a-zA-Z0-9_ ]{10,100}$'
-                    minLength: 10
-                    maxLength: 100
-        "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "500": { $ref: "#/components/responses/InternalServerError" }
   /messages/{messageId}/status:
     parameters:
