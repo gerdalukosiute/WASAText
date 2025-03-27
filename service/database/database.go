@@ -22,7 +22,8 @@ type AppDatabase interface {
 	GetUserIDByName(name string) (string, error)
 	GetExistingConversation(userID1, userID2 string) (string, bool, error)
 	GenerateConversationID() (string, error)
-	AddMessage(conversationID, senderID, messageType, content string, contentType string) (string, error) 
+	AddMessage(conversationID, senderID, messageType, content string, contentType string, parentMessageID *string) (string, error)  
+	ValidateParentMessage(messageID, conversationID string) (bool, error) 
 	IsUserInConversation(userID, conversationID string) (bool, error)
 	GetUserNameByID(userID string) (string, error)
 	GenerateMessageID() (string, error) 
@@ -76,19 +77,20 @@ type Participant struct {
 	Name string
 }
 
-// Message struct update - added ContentType field
+// Updated Message struct (includes parent message ID)
 type Message struct {
-    ID          string
-    SenderID    string
-    Sender      string
-    Type        string
-    Content     string
-    ContentType string 
-    Icon        string
-    Timestamp   time.Time
-    Status      string
-    Comments    []Comment
-}
+	ID             string
+	SenderID       string
+	Sender         string
+	Type           string
+	Content        string
+	ContentType    string
+	Icon           string
+	Timestamp      time.Time
+	Status         string
+	Comments       []Comment
+	ParentMessageID *string
+ } 
 
 // Comment represents a comment on a message
 type Comment struct {
@@ -187,8 +189,10 @@ func createTables(db *sql.DB) error {
 			icon TEXT,
 			created_at DATETIME NOT NULL,
 			status TEXT NOT NULL,
+			parent_message_id TEXT,
 			FOREIGN KEY (conversation_id) REFERENCES conversations(id),
-			FOREIGN KEY (sender_id) REFERENCES users(id)
+			FOREIGN KEY (sender_id) REFERENCES users(id),
+			FOREIGN KEY (parent_message_id) REFERENCES messages(id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS message_read_status (
     		message_id TEXT,

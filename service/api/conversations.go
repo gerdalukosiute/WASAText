@@ -40,15 +40,16 @@ type ParticipantResponse struct {
 
 // MessageResponse represents a message in the API response
 type MessageResponse struct {
-	ID        string            `json:"id"`
-	SenderID  string            `json:"senderId"`
-	Sender    string            `json:"sender"`
-	Type      string            `json:"type"`
-	Content   string            `json:"content"`
-	Icon      string            `json:"icon"`
-	Timestamp time.Time         `json:"timestamp"`
-	Status    string            `json:"status"`
-	Comments  []CommentResponse `json:"comments"`
+	ID             string            `json:"id"`
+	SenderID       string            `json:"senderId"`
+	Sender         string            `json:"sender"`
+	Type           string            `json:"type"`
+	Content        string            `json:"content"`
+	Icon           string            `json:"icon"`
+	Timestamp      time.Time         `json:"timestamp"`
+	Status         string            `json:"status"`
+	Comments       []CommentResponse `json:"comments"`
+	ParentMessageID *string          `json:"parentMessageId,omitempty"` 
 }
 
 // CommentResponse represents a comment in the API response
@@ -251,7 +252,7 @@ func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// Updated
+// Updated to handle replies according to the API documentation
 func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	conversationID := ps.ByName("conversationId")
 
@@ -274,13 +275,15 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 	contentType := r.Header.Get("Content-Type")
 	var messageType, content, contentTypeValue string
 	var photo []byte
+	var parentMessageID *string // Field for parent message ID (for replies)
 
 	// Handle different content types according to API spec
 	if strings.HasPrefix(contentType, "application/json") {
 		// Handle JSON request for text messages
 		var req struct {
-			Type    string `json:"type"`
-			Content string `json:"content"`
+			Type           string  `json:"type"`
+			Content        string  `json:"content"`
+			ParentMessageID *string `json:"parentMessageId,omitempty"` // Optional field for reply
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			ctx.Logger.WithError(err).Error("Failed to decode request body")
@@ -307,6 +310,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 		messageType = req.Type
 		content = req.Content
 		contentTypeValue = "text/plain"
+		parentMessageID = req.ParentMessageID // Store the parent message ID
 	} else if strings.HasPrefix(contentType, "multipart/form-data") {
 		// Handle multipart form for photo messages
 		if err := r.ParseMultipartForm(10 << 20); err != nil { // 10 MB max
@@ -319,6 +323,12 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 		if formType != "photo" {
 			sendJSONError(w, "Invalid message type for multipart content", http.StatusBadRequest)
 			return
+		}
+
+		// Check if this is a reply
+		parentMsgValue := r.FormValue("parentMessageId")
+		if parentMsgValue != "" {
+			parentMessageID = &parentMsgValue
 		}
 
 		file, header, err := r.FormFile("photo")
@@ -367,8 +377,23 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 		return
 	}
 
-	// Add the message to the database with content type
-	messageID, err := rt.db.AddMessage(conversationID, userID, messageType, content, contentTypeValue)
+	// Validate parentMessageID if provided
+	if parentMessageID != nil && *parentMessageID != "" {
+		// Check if the parent message exists and is in the same conversation
+		exists, err := rt.db.ValidateParentMessage(*parentMessageID, conversationID)
+		if err != nil {
+			ctx.Logger.WithError(err).Error("Failed to validate parent message")
+			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !exists {
+			sendJSONError(w, "Parent message not found or not in this conversation", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Add the message to the database with content type and parent message ID
+	messageID, err := rt.db.AddMessage(conversationID, userID, messageType, content, contentTypeValue, parentMessageID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to add message")
 		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
@@ -383,10 +408,11 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 		return
 	}
 
-	// Create the response
+	// Create the response according to the API documentation
 	response := struct {
 		MessageID      string `json:"messageId"`
 		ConversationID string `json:"conversationId"`
+		ParentMessageID *string `json:"parentMessageId,omitempty"`
 		Sender         struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
@@ -399,6 +425,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 	}{
 		MessageID:      messageID,
 		ConversationID: conversationID,
+		ParentMessageID: parentMessageID,
 		Sender: struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
@@ -417,6 +444,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		ctx.Logger.WithError(err).Error("Failed to encode response")
+		return
 	}
 }
 

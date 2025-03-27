@@ -353,7 +353,8 @@ func (db *appdbimpl) GenerateConversationID() (string, error) {
     return "", fmt.Errorf("failed to generate a unique conversation ID after multiple attempts")
 }
 
-func (db *appdbimpl) AddMessage(conversationID, senderID, messageType, content string, contentType string) (string, error) {
+// Update the AddMessage function to handle parent message ID
+func (db *appdbimpl) AddMessage(conversationID, senderID, messageType, content string, contentType string, parentMessageID *string) (string, error) {
 	// Generate a message ID that matches the pattern ^[a-zA-Z0-9_-]{10,30}$
 	messageID, err := db.GenerateMessageID()
 	if err != nil {
@@ -370,8 +371,7 @@ func (db *appdbimpl) AddMessage(conversationID, senderID, messageType, content s
 	defer func() {
 		if tx != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				// Just log the rollback error, don't override the original error
-				logrus.Printf("Error rolling back transaction: %v", rollbackErr)
+				logrus.WithError(rollbackErr).Error("Error rolling back transaction")
 			}
 		}
 	}()
@@ -389,11 +389,35 @@ func (db *appdbimpl) AddMessage(conversationID, senderID, messageType, content s
 	// Get current time
 	now := time.Now()
 
-	// Insert the message with content_type
+	// If this is a reply, validate that the parent message exists and is in the same conversation
+	if parentMessageID != nil && *parentMessageID != "" {
+		var parentExists bool
+		var parentConversationID string
+		err = tx.QueryRow(`
+			SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?),
+				   conversation_id
+			FROM messages
+			WHERE id = ?
+		`, *parentMessageID, *parentMessageID).Scan(&parentExists, &parentConversationID)
+		
+		if err != nil {
+			return "", fmt.Errorf("error checking parent message: %w", err)
+		}
+		
+		if !parentExists {
+			return "", ErrMessageNotFound
+		}
+		
+		if parentConversationID != conversationID {
+			return "", fmt.Errorf("parent message is not in the same conversation")
+		}
+	}
+
+	// Insert the message with content_type and parent_message_id
 	_, err = tx.Exec(`
-		INSERT INTO messages (id, conversation_id, sender_id, type, content, content_type, created_at, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, messageID, conversationID, senderID, messageType, content, contentType, now, "delivered")
+		INSERT INTO messages (id, conversation_id, sender_id, type, content, content_type, created_at, status, parent_message_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, messageID, conversationID, senderID, messageType, content, contentType, now, "delivered", parentMessageID)
 
 	if err != nil {
 		return "", fmt.Errorf("error adding message: %w", err)
@@ -410,6 +434,31 @@ func (db *appdbimpl) AddMessage(conversationID, senderID, messageType, content s
 	return messageID, nil
 }
 
+// New function to validate parent messages
+func (db *appdbimpl) ValidateParentMessage(messageID, conversationID string) (bool, error) {
+	// Check if the message exists and is in the specified conversation
+	var exists bool
+	var msgConversationID string
+	
+	err := db.c.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?),
+			   conversation_id
+		FROM messages
+		WHERE id = ?
+	`, messageID, messageID).Scan(&exists, &msgConversationID)
+	
+	if err != nil {
+		return false, fmt.Errorf("error checking message existence: %w", err)
+	}
+	
+	if !exists {
+		return false, nil
+	}
+	
+	// Check if the message is in the same conversation
+	return msgConversationID == conversationID, nil
+}
+
 // Checks if a user is a participant in a conversation
 func (db *appdbimpl) IsUserInConversation(userID, conversationID string) (bool, error) {
 	// Check if conversation exists
@@ -422,7 +471,7 @@ func (db *appdbimpl) IsUserInConversation(userID, conversationID string) (bool, 
 		return false, ErrConversationNotFound
 	}
 
-	// Check if user is a participant - using user_conversations table 
+	// Check if user is a participant - using user_conversations table
 	var isParticipant bool
 	err = db.c.QueryRow(`
 		SELECT EXISTS(

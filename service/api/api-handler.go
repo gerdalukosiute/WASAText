@@ -15,17 +15,15 @@ func (rt *_router) Handler() http.Handler {
 	// works with current, needs to be retested after some convos present
 	rt.router.POST("/conversations", rt.withAuth(rt.handleStartConversation)) 
 	// updated, retest aswell
-	rt.router.POST("/conversations/:conversationId/messages", rt.withAuth(rt.handleSendMessage))
-	rt.router.GET("/media/:mediaId", rt.withAuth(rt.handleGetMedia)) // New
-	// Updated and tested
+	rt.router.POST("/conversations/:conversationId/messages", rt.withAuth(rt.handleSendMessage)) // Updated
+	rt.router.GET("/media/:mediaId", rt.withAuth(rt.handleGetMedia)) // Updated and tested
 	rt.router.PUT("/messages/:messageId/status", rt.withAuth(rt.handleUpdateMessageStatus))
 	rt.router.POST("/messages/:messageId/forward", rt.withAuth(rt.handleForwardMessage))
 	rt.router.DELETE("/messages/:messageId", rt.withAuth(rt.handleDeleteMessage))
 	rt.router.POST("/messages/:messageId/comments", rt.withAuth(rt.handleAddComment))
 	rt.router.DELETE("/messages/:messageId/comments/:commentId", rt.withAuth(rt.handleDeleteComment))
-	rt.router.POST("/messages/:messageId/replies") // New
 	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
-	// After dealing with messages
+	// After dealing with messages; should include also the replies
 	rt.router.GET("/groups", rt.withAuth(rt.handleGetMyGroups))
 	rt.router.POST("/groups/:groupId", rt.withAuth(rt.handleAddToGroup))
 	rt.router.DELETE("/groups/:groupId", rt.withAuth(rt.handleLeaveGroup))
