@@ -33,7 +33,7 @@ type AppDatabase interface {
 	ForwardMessage(originalMessageID, targetConversationID, userID string) (*ForwardedMessage, error)
 	IsUserAuthorized(userID string, messageID string) (bool, error) 
 	ConversationExists(conversationID string) (bool, error)
-	DeleteMessage(messageID, userID string) (*Message, error) // not updated
+	DeleteMessage(messageID, userID string) (*Message, string, error)
 	AddComment(messageID, userID, content string) (*Comment, error) 
 	DeleteComment(messageID, commentID, userID string) error 
 	GetGroupsForUser(userID string) ([]Group, error) // not updated
@@ -251,7 +251,6 @@ func createTables(db *sql.DB) error {
 			FOREIGN KEY (group_id) REFERENCES groups(id),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)`,
-		// Added new media_files table
 		`CREATE TABLE IF NOT EXISTS media_files (
 		id TEXT PRIMARY KEY,
 		file_data BLOB NOT NULL,

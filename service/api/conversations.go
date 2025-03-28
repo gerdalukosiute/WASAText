@@ -877,6 +877,79 @@ func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// Update the handleDeleteMessage function to match the API documentation
+func (rt *_router) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
+   ctx.Logger.WithFields(logrus.Fields{
+       "userID":    userID,
+       "messageID": ps.ByName("messageId"),
+   }).Info("Handling delete message request")
+
+
+   messageID := ps.ByName("messageId")
+
+
+   // Delete the message
+   deletedMessage, conversationID, err := rt.db.DeleteMessage(messageID, userID)
+   if err != nil {
+       var statusCode int
+       var errorMessage string
+      
+       if errors.Is(err, database.ErrMessageNotFound) {
+           statusCode = http.StatusNotFound
+           errorMessage = "Message not found"
+       } else if errors.Is(err, database.ErrUnauthorized) {
+           statusCode = http.StatusForbidden
+           errorMessage = "No permission to delete"
+       } else {
+           statusCode = http.StatusInternalServerError
+           errorMessage = "Internal server error"
+           ctx.Logger.WithError(err).Error("Failed to delete message")
+       }
+      
+       sendJSONError(w, errorMessage, statusCode)
+       return
+   }
+
+
+   // Get the username for the response
+   username, err := rt.db.GetUserNameByID(userID)
+   if err != nil {
+       ctx.Logger.WithError(err).Error("Failed to get username")
+       sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+       return
+   }
+
+
+   // Create the response according to the API documentation
+   response := struct {
+       MessageID      string    `json:"messageId"`
+       User           struct {
+           Username string `json:"username"`
+           UserID   string `json:"userId"`
+       } `json:"user"`
+       DeletedAt      string    `json:"deletedAt"`
+       ConversationID string    `json:"conversationId"`
+   }{
+       MessageID: deletedMessage.ID,
+       User: struct {
+           Username string `json:"username"`
+           UserID   string `json:"userId"`
+       }{
+           Username: username,
+           UserID:   userID,
+       },
+       DeletedAt:      time.Now().Format(time.RFC3339),
+       ConversationID: conversationID,
+   }
+
+
+   w.Header().Set("Content-Type", "application/json")
+   w.WriteHeader(http.StatusOK)
+   if err := json.NewEncoder(w).Encode(response); err != nil {
+       ctx.Logger.WithError(err).Error("Failed to encode response")
+   }
+}
+
 // Updated above
 
 func convertMessages(dbMessages []database.Message) []MessageResponse {
@@ -966,48 +1039,4 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
-}
-
-func (rt *_router) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	ctx.Logger.WithFields(logrus.Fields{
-		"userID":    userID,
-		"messageID": ps.ByName("messageId"),
-	}).Info("Handling delete message request")
-
-	messageID := ps.ByName("messageId")
-
-	// Delete the message
-	deletedMessage, err := rt.db.DeleteMessage(messageID, userID)
-	if err != nil {
-		var statusCode int
-		var errorMessage string
-		switch err {
-		case database.ErrMessageNotFound:
-			statusCode = http.StatusNotFound
-			errorMessage = "Message not found"
-		case database.ErrUnauthorized:
-			statusCode = http.StatusForbidden // Changed from StatusUnauthorized to StatusForbidden
-			errorMessage = "Forbidden to delete this message"
-		default:
-			statusCode = http.StatusInternalServerError
-			errorMessage = "Internal server error"
-			ctx.Logger.WithError(err).Error("Failed to delete message")
-		}
-		sendJSONError(w, errorMessage, statusCode)
-		return
-	}
-
-	response := deleteMessageResponse{
-		MessageID: deletedMessage.ID,
-		Username:  deletedMessage.Sender,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
-}
-
-type deleteMessageResponse struct {
-	MessageID string `json:"messageId"`
-	Username  string `json:"username"`
 }

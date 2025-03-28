@@ -938,7 +938,7 @@ func (db *appdbimpl) UpdateMessageStatus(messageID, userID, newStatus string) (*
 
 
 	// Get the current time for updatedAt
-	updatedAt := time.Now().UTC()
+	updatedAt := time.Now()
 
 
 	// Check if it's a group conversation
@@ -1030,79 +1030,108 @@ func (db *appdbimpl) UpdateMessageStatus(messageID, userID, newStatus string) (*
 	return statusUpdate, nil
 }
 
-// UPDATED TO THIS POINT 
+// Updated the DeleteMessage function to match the API documentation
+func (db *appdbimpl) DeleteMessage(messageID, userID string) (*Message, string, error) {
+   var messageToDelete Message
+   var icon sql.NullString
+   var conversationID string
 
-func (db *appdbimpl) DeleteMessage(messageID, userID string) (*Message, error) {
-	var messageToDelete Message
-	var icon sql.NullString
 
-	// Find the message and check if the user is authorized to delete it
-	err := db.c.QueryRow(`
-		SELECT id, type, content, icon, sender_id, created_at, status
-		FROM messages 
-		WHERE id = ?`, messageID).Scan(
-		&messageToDelete.ID,
-		&messageToDelete.Type,
-		&messageToDelete.Content,
-		&icon,
-		&messageToDelete.Sender,
-		&messageToDelete.Timestamp,
-		&messageToDelete.Status,
-	)
+   // Start a transaction
+   tx, err := db.c.Begin()
+   if err != nil {
+       return nil, "", fmt.Errorf("error starting transaction: %w", err)
+   }
 
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, ErrMessageNotFound
-		}
-		return nil, fmt.Errorf("error querying message: %w", err)
-	}
 
-	// Handle NULL icon
-	if icon.Valid {
-		messageToDelete.Icon = icon.String
-	} else {
-		messageToDelete.Icon = ""
-	}
+   // Ensure transaction is rolled back if an error occurs
+   defer func() {
+       if tx != nil {
+           if rollbackErr := tx.Rollback(); rollbackErr != nil {
+               // Just log the rollback error, don't override the original error
+               logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+           }
+       }
+   }()
 
-	if messageToDelete.Sender != userID {
-		return nil, ErrUnauthorized
-	}
 
-	// Start a transaction
-	tx, err := db.c.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("error starting transaction: %w", err)
-	}
-	defer tx.Rollback() // Rollback the transaction if it's not committed
+   // Find the message and check if the user is authorized to delete it
+   err = tx.QueryRow(`
+       SELECT m.id, m.conversation_id, m.type, m.content, m.icon, m.sender_id, m.created_at, m.status
+       FROM messages m
+       WHERE m.id = ?`, messageID).Scan(
+       &messageToDelete.ID,
+       &conversationID,
+       &messageToDelete.Type,
+       &messageToDelete.Content,
+       &icon,
+       &messageToDelete.SenderID,
+       &messageToDelete.Timestamp,
+       &messageToDelete.Status,
+   )
 
-	// Delete associated reactions
-	_, err = tx.Exec("DELETE FROM comments WHERE message_id = ?", messageID)
-	if err != nil {
-		return nil, fmt.Errorf("error deleting reactions: %w", err)
-	}
 
-	// Delete the message
-	result, err := tx.Exec("DELETE FROM messages WHERE id = ?", messageID)
-	if err != nil {
-		return nil, fmt.Errorf("error deleting message: %w", err)
-	}
+   if err != nil {
+       if errors.Is(err, sql.ErrNoRows) {
+           return nil, "", ErrMessageNotFound
+       }
+       return nil, "", fmt.Errorf("error querying message: %w", err)
+   }
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return nil, fmt.Errorf("error getting rows affected: %w", err)
-	}
 
-	if rowsAffected == 0 {
-		return nil, ErrMessageNotFound
-	}
+   // Handle NULL icon
+   if icon.Valid {
+       messageToDelete.Icon = icon.String
+   } else {
+       messageToDelete.Icon = ""
+   }
 
-	// Commit the transaction
-	if err = tx.Commit(); err != nil {
-		return nil, fmt.Errorf("error committing transaction: %w", err)
-	}
 
-	return &messageToDelete, nil
+   // Check if the user is the sender of the message
+   if messageToDelete.SenderID != userID {
+       return nil, "", ErrUnauthorized
+   }
+
+
+   // Delete associated reactions
+   _, err = tx.Exec("DELETE FROM comments WHERE message_id = ?", messageID)
+   if err != nil {
+       return nil, "", fmt.Errorf("error deleting reactions: %w", err)
+   }
+
+
+   // Delete the message
+   result, err := tx.Exec("DELETE FROM messages WHERE id = ?", messageID)
+   if err != nil {
+       return nil, "", fmt.Errorf("error deleting message: %w", err)
+   }
+
+
+   rowsAffected, err := result.RowsAffected()
+   if err != nil {
+       return nil, "", fmt.Errorf("error getting rows affected: %w", err)
+   }
+
+
+   if rowsAffected == 0 {
+       return nil, "", ErrMessageNotFound
+   }
+
+
+   // Commit the transaction
+   if err = tx.Commit(); err != nil {
+       return nil, "", fmt.Errorf("error committing transaction: %w", err)
+   }
+
+
+   // Set tx to nil to prevent rollback in defer function
+   tx = nil
+
+
+   return &messageToDelete, conversationID, nil
 }
+
+// UPDATED TO THIS POINT 
 
 func (db *appdbimpl) GetMessageByID(messageID string) (*Message, error) {
 	query := `
