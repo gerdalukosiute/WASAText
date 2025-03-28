@@ -36,7 +36,6 @@ type AppDatabase interface {
 	DeleteMessage(messageID, userID string) (*Message, string, error)
 	AddComment(messageID, userID, content string) (*Comment, error) 
 	DeleteComment(messageID, commentID, userID string) error 
-	GetGroupsForUser(userID string) ([]Group, error) // not updated
 	AddUserToGroup(groupID, adderID, username string) error // not updated
 	LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, err error) // not updated
 	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, err error) // not updated
