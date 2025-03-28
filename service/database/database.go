@@ -29,7 +29,7 @@ type AppDatabase interface {
     StoreMediaFile(fileData []byte, mimeType string) (string, error)
     GetMediaFile(mediaID string) ([]byte, string, error) 
 	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error) // not updated
-	GetComments(messageID string) ([]Comment, error) // not updated
+	GetComments(messageID string) ([]Comment, error) // not updated, may be useless
 	ForwardMessage(originalMessageID, targetConversationID, userID string) (*ForwardedMessage, error)
 	IsUserAuthorized(userID string, messageID string) (bool, error) 
 	ConversationExists(conversationID string) (bool, error)
@@ -39,7 +39,7 @@ type AppDatabase interface {
 	AddUsersToGroup(groupID, adderID string, usernames []string) (*GroupAddResult, error)
 	LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, remainingMemberCount int, err error)
 	IsGroupMember(groupID, userID string) (bool, error) 
-	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, err error) // not updated
+	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, memberCount int, err error) 
 	SetGroupPhoto(groupID string, userID string, newPhotoURL string) (oldPhotoURL string, updatedPhotoURL string, err error) // not updated
 	UserExists(userID string) (bool, error)
 	UpdateMessageStatus(messageID, userID, newStatus string) (*MessageStatusUpdate, error)

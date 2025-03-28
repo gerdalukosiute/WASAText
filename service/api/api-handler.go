@@ -23,8 +23,8 @@ func (rt *_router) Handler() http.Handler {
 	rt.router.POST("/messages/:messageId/comments", rt.withAuth(rt.handleAddComment)) // Updated, works currently, test after fixing details
 	rt.router.DELETE("/messages/:messageId/comments/:commentId", rt.withAuth(rt.handleDeleteComment)) // Updated, test later
 	rt.router.POST("/groups/:groupId", rt.withAuth(rt.handleAddToGroup)) // Updated
-	rt.router.DELETE("/groups/:groupId", rt.withAuth(rt.handleLeaveGroup))
-	rt.router.PUT("/groups/:groupId", rt.withAuth(rt.handleSetGroupName))
+	rt.router.DELETE("/groups/:groupId", rt.withAuth(rt.handleLeaveGroup)) // Updated
+	rt.router.PUT("/groups/:groupId", rt.withAuth(rt.handleSetGroupName)) // Updated
 	rt.router.PATCH("/groups/:groupId", rt.withAuth(rt.handleSetGroupPhoto))
 	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
 	// After dealing with messages and groups; should include also the replies

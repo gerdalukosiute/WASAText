@@ -6,6 +6,7 @@ import (
 	"strings"
 	"errors"
 	"time"
+	"regexp"
 
 	"github.com/sirupsen/logrus"
 )
@@ -314,6 +315,116 @@ func (db *appdbimpl) IsGroupMember(groupID string, userID string) (bool, error) 
   return isInUserConversations > 0, nil
 }
 
+// Updated 
+func (db *appdbimpl) SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, memberCount int, err error) {
+   // Validate the new group name format
+   if len(newName) < 3 || len(newName) > 30 {
+       return "", "", 0, ErrInvalidGroupName
+   }
+  
+   // Check if the group name matches the required pattern 
+   validNamePattern := "^[a-zA-Z0-9_\\s-]{3,30}$"
+   match, err := regexp.MatchString(validNamePattern, newName)
+   if err != nil {
+       return "", "", 0, fmt.Errorf("error validating group name: %w", err)
+   }
+   if !match {
+       return "", "", 0, ErrInvalidGroupName
+   }
+  
+   // Check if the user is a member of the group
+   isMember, err := db.IsGroupMember(groupID, userID)
+   if err != nil {
+       if errors.Is(err, ErrGroupNotFound) {
+           return "", "", 0, ErrGroupNotFound
+       }
+       return "", "", 0, fmt.Errorf("error checking group membership: %w", err)
+   }
+   if !isMember {
+       return "", "", 0, ErrUnauthorized
+   }
+
+
+   // Start a transaction
+   tx, err := db.c.Begin()
+   if err != nil {
+       return "", "", 0, fmt.Errorf("error starting transaction: %w", err)
+   }
+  
+   // Ensure transaction is rolled back if an error occurs
+   defer func() {
+       if tx != nil {
+           if rollbackErr := tx.Rollback(); rollbackErr != nil {
+               logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+           }
+       }
+   }()
+
+
+   // Get the old group name
+   err = tx.QueryRow("SELECT title FROM conversations WHERE id = ? AND is_group = 1", groupID).Scan(&oldName)
+   if err != nil {
+       if errors.Is(err, sql.ErrNoRows) {
+           return "", "", 0, ErrGroupNotFound
+       }
+       return "", "", 0, fmt.Errorf("error getting old group name: %w", err)
+   }
+  
+   // Check if the new name is the same as the old name
+   if oldName == newName {
+       // No need to update, just get the member count and return
+       err = tx.QueryRow("SELECT COUNT(*) FROM user_conversations WHERE conversation_id = ?", groupID).Scan(&memberCount)
+       if err != nil {
+           return "", "", 0, fmt.Errorf("error getting member count: %w", err)
+       }
+      
+       // Set tx to nil to prevent rollback in defer function
+       tx = nil
+      
+       return oldName, newName, memberCount, nil
+   }
+  
+   // Check if another group with the same name already exists
+   var nameExists int
+   err = tx.QueryRow("SELECT COUNT(*) FROM conversations WHERE title = ? AND is_group = 1 AND id != ?", newName, groupID).Scan(&nameExists)
+   if err != nil {
+       return "", "", 0, fmt.Errorf("error checking for existing group name: %w", err)
+   }
+   if nameExists > 0 {
+       return "", "", 0, ErrNameAlreadyTaken
+   }
+
+
+   // Update the group name in both tables
+   _, err = tx.Exec("UPDATE conversations SET title = ? WHERE id = ? AND is_group = 1", newName, groupID)
+   if err != nil {
+       return "", "", 0, fmt.Errorf("error updating group name in conversations: %w", err)
+   }
+  
+   _, err = tx.Exec("UPDATE groups SET name = ? WHERE id = ?", newName, groupID)
+   if err != nil {
+       return "", "", 0, fmt.Errorf("error updating group name in groups: %w", err)
+   }
+  
+   // Get the current member count
+   err = tx.QueryRow("SELECT COUNT(*) FROM user_conversations WHERE conversation_id = ?", groupID).Scan(&memberCount)
+   if err != nil {
+       return "", "", 0, fmt.Errorf("error getting member count: %w", err)
+   }
+
+
+   // Commit the transaction
+   if err := tx.Commit(); err != nil {
+       return "", "", 0, fmt.Errorf("error committing transaction: %w", err)
+   }
+  
+   // Set tx to nil to prevent rollback in defer function
+   tx = nil
+
+
+   return oldName, newName, memberCount, nil
+}
+
 func (db *appdbimpl) GetUserByUsername(username string) (User, error) {
 	var user User
 	err := db.c.QueryRow("SELECT id, name FROM users WHERE name = ?", username).Scan(&user.ID, &user.Name)
@@ -321,51 +432,6 @@ func (db *appdbimpl) GetUserByUsername(username string) (User, error) {
 		return User{}, err
 	}
 	return user, nil
-}
-
-// Update SetGroupName to update both tables
-func (db *appdbimpl) SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, err error) {
-	// Check if the user is a member of the group
-	isMember, err := db.IsGroupMember(groupID, userID)
-	if err != nil {
-		return "", "", fmt.Errorf("error checking group membership: %w", err)
-	}
-	if !isMember {
-		return "", "", ErrUnauthorized
-	}
-
-	// Start a transaction
-	tx, err := db.c.Begin()
-	if err != nil {
-		return "", "", fmt.Errorf("error starting transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Get the old group name
-	err = tx.QueryRow("SELECT title FROM conversations WHERE id = ? AND is_group = 1", groupID).Scan(&oldName)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", "", ErrGroupNotFound
-		}
-		return "", "", fmt.Errorf("error getting old group name: %w", err)
-	}
-
-	// Update the group name in both tables
-	_, err = tx.Exec("UPDATE conversations SET title = ? WHERE id = ? AND is_group = 1", newName, groupID)
-	if err != nil {
-		return "", "", fmt.Errorf("error updating group name in conversations: %w", err)
-	}
-	_, err = tx.Exec("UPDATE groups SET name = ? WHERE id = ?", newName, groupID)
-	if err != nil {
-		return "", "", fmt.Errorf("error updating group name in groups: %w", err)
-	}
-
-	// Commit the transaction
-	if err := tx.Commit(); err != nil {
-		return "", "", fmt.Errorf("error committing transaction: %w", err)
-	}
-
-	return oldName, newName, nil
 }
 
 // Update SetGroupPhoto to update both tables (if applicable)

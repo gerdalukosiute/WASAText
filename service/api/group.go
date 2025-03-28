@@ -194,47 +194,107 @@ func (rt *_router) handleLeaveGroup(w http.ResponseWriter, r *http.Request, ps h
    }
 }
 
+// Updated
 func (rt *_router) handleSetGroupName(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	groupID := ps.ByName("groupId")
+   groupID := ps.ByName("groupId")
 
-	var req struct {
-		GroupName string `json:"groupName"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		ctx.Logger.WithError(err).Warn("Invalid request body")
-		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
 
-	oldGroupName, newGroupName, err := rt.db.SetGroupName(groupID, userID, req.GroupName)
-	if err != nil {
-		switch err {
-		case database.ErrUnauthorized:
-			ctx.Logger.Warn("Unauthorized attempt to set group name")
-			sendJSONError(w, "Unauthorized", http.StatusUnauthorized)
-		case database.ErrGroupNotFound:
-			ctx.Logger.Warn("Attempt to set name of non-existent group")
-			sendJSONError(w, "Group not found", http.StatusNotFound)
-		default:
-			ctx.Logger.WithError(err).Error("Failed to set group name")
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		}
-		return
-	}
+   ctx.Logger.WithFields(logrus.Fields{
+       "groupID": groupID,
+       "userID":  userID,
+   }).Info("Handling set group name request")
 
-	response := struct {
-		GroupID      string `json:"groupId"`
-		OldGroupName string `json:"oldGroupName"`
-		NewGroupName string `json:"newGroupName"`
-	}{
-		GroupID:      groupID,
-		OldGroupName: oldGroupName,
-		NewGroupName: newGroupName,
-	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+   // Validate request body
+   var req struct {
+       GroupName string `json:"groupName"`
+   }
+   if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+       ctx.Logger.WithError(err).Warn("Invalid request body")
+       sendJSONError(w, "Invalid request body", http.StatusBadRequest)
+       return
+   }
+
+
+   // Validate required fields
+   if req.GroupName == "" {
+       ctx.Logger.Warn("No group name provided")
+       sendJSONError(w, "Group name is required", http.StatusBadRequest)
+       return
+   }
+
+
+   // Update the group name
+   oldGroupName, newGroupName, memberCount, err := rt.db.SetGroupName(groupID, userID, req.GroupName)
+   if err != nil {
+       ctx.Logger.WithError(err).Error("Failed to set group name")
+      
+       var statusCode int
+       var errorMessage string
+      
+       if errors.Is(err, database.ErrUnauthorized) {
+           statusCode = http.StatusForbidden
+           errorMessage = "No permission to update"
+       } else if errors.Is(err, database.ErrGroupNotFound) {
+           statusCode = http.StatusNotFound
+           errorMessage = "Group not found"
+       } else if errors.Is(err, database.ErrInvalidGroupName) {
+           statusCode = http.StatusBadRequest
+           errorMessage = "Invalid group name format"
+       } else if errors.Is(err, database.ErrNameAlreadyTaken) {
+           statusCode = http.StatusConflict
+           errorMessage = "Group with this name already exists"
+       } else {
+           statusCode = http.StatusInternalServerError
+           errorMessage = "Internal server error"
+       }
+      
+       sendJSONError(w, errorMessage, statusCode)
+       return
+   }
+
+
+   // Get the username for the response
+   username, err := rt.db.GetUserNameByID(userID)
+   if err != nil {
+       ctx.Logger.WithError(err).Error("Failed to get username")
+       sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+       return
+   }
+
+
+   // Create the response according to the API documentation
+   response := struct {
+       GroupID      string    `json:"groupId"`
+       OldGroupName string    `json:"oldGroupName"`
+       NewGroupName string    `json:"newGroupName"`
+       UpdatedBy    struct {
+           Username string `json:"username"`
+           UserID   string `json:"userId"`
+       } `json:"updatedBy"`
+       UpdatedAt    string    `json:"updatedAt"`
+       MemberCount  int       `json:"memberCount"`
+   }{
+       GroupID:      groupID,
+       OldGroupName: oldGroupName,
+       NewGroupName: newGroupName,
+       UpdatedBy: struct {
+           Username string `json:"username"`
+           UserID   string `json:"userId"`
+       }{
+           Username: username,
+           UserID:   userID,
+       },
+       UpdatedAt:    time.Now().Format(time.RFC3339),
+       MemberCount:  memberCount,
+   }
+
+
+   w.Header().Set("Content-Type", "application/json")
+   w.WriteHeader(http.StatusOK)
+   if err := json.NewEncoder(w).Encode(response); err != nil {
+       ctx.Logger.WithError(err).Error("Failed to encode response")
+   }
 }
 
 func (rt *_router) handleSetGroupPhoto(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
