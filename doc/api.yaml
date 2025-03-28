@@ -1628,17 +1628,8 @@ paths:
                     minLength: 3
                     maxLength: 16
                   example: ["Alice", "Bob"]
-                groupName: 
-                  type: string
-                  description: |
-                    The name for the group
-                  pattern: '^[a-zA-Z0-9_\s-]{3,30}$'
-                  minLength: 3
-                  maxLength: 30
-                  example: "Meeting"
               required:
                 - usernames
-                - groupName
       responses:
         "200":
           description: |

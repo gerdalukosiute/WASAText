@@ -4,14 +4,165 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"errors"
+	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
-type AddUsersToGroupResult struct {
-	AddedUsers  []string
-	FailedUsers []string
+// Updated
+func (db *appdbimpl) AddUsersToGroup(groupID, adderID string, usernames []string) (*GroupAddResult, error) {
+	// First check if the conversation exists at all
+	var conversationExists bool
+	err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM conversations WHERE id = ?)", groupID).Scan(&conversationExists)
+	if err != nil {
+		return nil, fmt.Errorf("error checking conversation existence: %w", err)
+	}
+	if !conversationExists {
+		return nil, ErrGroupNotFound
+	}
+
+
+	// Now check if it's a group conversation
+	var isGroup bool
+	var currentGroupName string
+	err = db.c.QueryRow("SELECT is_group, COALESCE(title, '') FROM conversations WHERE id = ?", groupID).Scan(&isGroup, &currentGroupName)
+	if err != nil {
+		return nil, fmt.Errorf("error getting conversation details: %w", err)
+	}
+	if !isGroup {
+		return nil, ErrGroupNotFound
+	}
+
+
+	// Check if the adder is a member of the group
+	var isMember bool
+	err = db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM user_conversations WHERE conversation_id = ? AND user_id = ?)", groupID, adderID).Scan(&isMember)
+	if err != nil {
+		return nil, fmt.Errorf("error checking adder membership: %w", err)
+	}
+	if !isMember {
+		return nil, ErrUnauthorized
+	}
+
+
+	// Get the adder's name
+	adderName, err := db.GetUserNameByID(adderID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting adder name: %w", err)
+	}
+
+
+	// Start a transaction
+	tx, err := db.c.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("error starting transaction: %w", err)
+	}
+	
+	// Ensure transaction is rolled back if an error occurs
+	defer func() {
+		if tx != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+			}
+		}
+	}()
+
+
+	// Prepare result
+	result := &GroupAddResult{
+		GroupID:           groupID,
+		GroupName:         currentGroupName,
+		AddedUsers:        []struct {
+			Username string
+			UserID   string
+		}{},
+		FailedUsers:       []string{},
+		AddedBy: User{
+			ID:   adderID,
+			Name: adderName,
+		},
+		Timestamp:         time.Now(),
+	}
+
+
+	// Process each username
+	for _, username := range usernames {
+		// Get the user ID for the given username
+		var userID string
+		err = tx.QueryRow("SELECT id FROM users WHERE name = ?", username).Scan(&userID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				// User not found, add to failed users
+				result.FailedUsers = append(result.FailedUsers, username)
+				continue
+			}
+			return nil, fmt.Errorf("error getting user ID: %w", err)
+		}
+
+
+		// Check if the user is already a member of the group
+		var userExists bool
+		err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM user_conversations WHERE conversation_id = ? AND user_id = ?)", groupID, userID).Scan(&userExists)
+		if err != nil {
+			return nil, fmt.Errorf("error checking user membership: %w", err)
+		}
+		if userExists {
+			// User already in group, add to failed users
+			result.FailedUsers = append(result.FailedUsers, username)
+			continue
+		}
+
+
+		// Add the user to the conversation
+		_, err = tx.Exec("INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)", userID, groupID)
+		if err != nil {
+			return nil, fmt.Errorf("error adding user to conversation: %w", err)
+		}
+
+
+		// Add the user to the group_members table if it exists
+		_, err = tx.Exec("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", groupID, userID)
+		if err != nil {
+			// If this fails, it might be because the group_members table is not used or the group_id doesn't exist there
+			// We'll log the error but continue since the user was added to user_conversations
+			logrus.WithError(err).Warnf("Failed to add user %s to group_members table", username)
+		}
+
+
+		// Add to successful users
+		result.AddedUsers = append(result.AddedUsers, struct {
+			Username string
+			UserID   string
+		}{
+			Username: username,
+			UserID:   userID,
+		})
+	}
+
+
+	// Get updated member count
+	var memberCount int
+	err = tx.QueryRow("SELECT COUNT(*) FROM user_conversations WHERE conversation_id = ?", groupID).Scan(&memberCount)
+	if err != nil {
+		return nil, fmt.Errorf("error getting member count: %w", err)
+	}
+	result.UpdatedMemberCount = memberCount
+
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("error committing transaction: %w", err)
+	}
+	
+	// Set tx to nil to prevent rollback in defer function
+	tx = nil
+
+
+	return result, nil
 }
 
-// Update IsGroupMember to check both tables
+// Update IsGroupMember to check both tables; used in leaving, photo and group name updates
 func (db *appdbimpl) IsGroupMember(groupID, userID string) (bool, error) {
 	var exists bool
 	err := db.c.QueryRow(`
@@ -28,71 +179,6 @@ func (db *appdbimpl) IsGroupMember(groupID, userID string) (bool, error) {
 		return false, fmt.Errorf("error checking group membership: %w", err)
 	}
 	return exists, nil
-}
-
-func (db *appdbimpl) AddUserToGroup(groupID, adderID, username string) error {
-	// Check if the group exists
-	var exists bool
-	err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM conversations WHERE id = ? AND is_group = 1)", groupID).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("error checking group existence: %w", err)
-	}
-	if !exists {
-		return ErrGroupNotFound
-	}
-
-	// Check if the adder is a member of the group
-	err = db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM user_conversations WHERE conversation_id = ? AND user_id = ?)", groupID, adderID).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("error checking adder membership: %w", err)
-	}
-	if !exists {
-		return ErrUnauthorized
-	}
-
-	// Get the user ID for the given username
-	var userID string
-	err = db.c.QueryRow("SELECT id FROM users WHERE name = ?", username).Scan(&userID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return ErrUserNotFound
-		}
-		return fmt.Errorf("error getting user ID: %w", err)
-	}
-
-	// Check if the user is already a member of the group
-	err = db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM user_conversations WHERE conversation_id = ? AND user_id = ?)", groupID, userID).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("error checking user membership: %w", err)
-	}
-	if exists {
-		return ErrUserAlreadyInGroup
-	}
-
-	// Start a transaction
-	tx, err := db.c.Begin()
-	if err != nil {
-		return fmt.Errorf("error starting transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Add the user to the conversation
-	_, err = tx.Exec("INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)", userID, groupID)
-	if err != nil {
-		return fmt.Errorf("error adding user to conversation: %w", err)
-	}
-
-	// Add the user to the group_members table
-	_, err = tx.Exec("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", groupID, userID)
-	if err != nil {
-		return fmt.Errorf("error adding user to group_members: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("error committing transaction: %w", err)
-	}
-
-	return nil
 }
 
 func (db *appdbimpl) GetUserByUsername(username string) (User, error) {

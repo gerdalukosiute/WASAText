@@ -3,25 +3,30 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"errors"
+	"fmt"
+	"time"
 
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/gerdalukosiute/WASAText/service/database"
-	"github.com/google/uuid"
 	"github.com/julienschmidt/httprouter"
+	"github.com/sirupsen/logrus"
 )
 
+// Updated
 func (rt *_router) handleAddToGroup(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	groupID := ps.ByName("groupId")
 
-	// Validate groupID
-	if _, err := uuid.Parse(groupID); err != nil {
-		ctx.Logger.WithError(err).Warn("Invalid group ID format")
-		sendJSONError(w, "Invalid group ID format", http.StatusBadRequest)
-		return
-	}
 
+	ctx.Logger.WithFields(logrus.Fields{
+		"groupID": groupID,
+		"userID":  userID,
+	}).Info("Handling add to group request")
+
+
+	// Validate request body
 	var req struct {
-		Username string `json:"username"`
+		Usernames []string `json:"usernames"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		ctx.Logger.WithError(err).Warn("Invalid request body")
@@ -29,39 +34,98 @@ func (rt *_router) handleAddToGroup(w http.ResponseWriter, r *http.Request, ps h
 		return
 	}
 
-	err := rt.db.AddUserToGroup(groupID, userID, req.Username)
-	if err != nil {
-		switch err {
-		case database.ErrUnauthorized:
-			ctx.Logger.Warn("Unauthorized attempt to add user to group")
-			sendJSONError(w, "Unauthorized", http.StatusUnauthorized)
-		case database.ErrGroupNotFound:
-			ctx.Logger.Warn("Attempt to add user to non-existent group")
-			sendJSONError(w, "Group not found", http.StatusNotFound)
-		case database.ErrUserNotFound:
-			ctx.Logger.Warn("Attempt to add non-existent user to group")
-			sendJSONError(w, "User not found", http.StatusNotFound)
-		case database.ErrUserAlreadyInGroup:
-			ctx.Logger.Warn("Attempt to add user already in group")
-			sendJSONError(w, "User is already a member of the group", http.StatusConflict)
-		default:
-			ctx.Logger.WithError(err).Error("Failed to add user to group")
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		}
+
+	// Validate required fields
+	if len(req.Usernames) == 0 {
+		ctx.Logger.Warn("No usernames provided")
+		sendJSONError(w, "Usernames are required", http.StatusBadRequest)
 		return
 	}
 
-	response := struct {
-		GroupID  string `json:"groupId"`
-		Username string `json:"username"`
-	}{
-		GroupID:  groupID,
-		Username: req.Username,
+
+	// Add users to group
+	result, err := rt.db.AddUsersToGroup(groupID, userID, req.Usernames)
+	if err != nil {
+		// Add detailed error logging
+		ctx.Logger.WithFields(logrus.Fields{
+			"error":      err.Error(),
+			"errorType":  fmt.Sprintf("%T", err),
+			"groupID":    groupID,
+			"userID":     userID,
+			"usernames":  req.Usernames,
+			"isGroupNotFound": errors.Is(err, database.ErrGroupNotFound),
+			"isUnauthorized":  errors.Is(err, database.ErrUnauthorized),
+		}).Error("Failed to add users to group")
+		
+		// Direct string comparison as a fallback
+		if errors.Is(err, database.ErrGroupNotFound) || err.Error() == "group not found" {
+			ctx.Logger.Warn("Attempt to add users to non-existent group")
+			sendJSONError(w, "Group not found", http.StatusNotFound)
+			return
+		} else if errors.Is(err, database.ErrUnauthorized) || err.Error() == "user unauthorized" {
+			ctx.Logger.Warn("Unauthorized attempt to add users to group")
+			sendJSONError(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		} else {
+			ctx.Logger.WithError(err).Error("Internal server error when adding users to group")
+			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
+
+
+	// Create response according to API documentation
+	response := struct {
+		GroupName         string `json:"groupName"`
+		GroupID           string `json:"groupId"`
+		AddedUsers        []struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		} `json:"addedUsers"`
+		FailedUsers       []string `json:"failedUsers"`
+		UpdatedMemberCount int      `json:"updatedMemberCount"`
+		AddedBy           struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		} `json:"addedBy"`
+		Timestamp         string   `json:"timestamp"`
+	}{
+		GroupName:         result.GroupName,
+		GroupID:           result.GroupID,
+		AddedUsers:        make([]struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		}, len(result.AddedUsers)),
+		FailedUsers:       result.FailedUsers,
+		UpdatedMemberCount: result.UpdatedMemberCount,
+		AddedBy: struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		}{
+			Username: result.AddedBy.Name,
+			UserID:   result.AddedBy.ID,
+		},
+		Timestamp:         result.Timestamp.Format(time.RFC3339),
+	}
+
+
+	// Copy added users to response
+	for i, user := range result.AddedUsers {
+		response.AddedUsers[i] = struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		}{
+			Username: user.Username,
+			UserID:   user.UserID,
+		}
+	}
+
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to encode response")
+	}
 }
 
 func (rt *_router) handleLeaveGroup(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {

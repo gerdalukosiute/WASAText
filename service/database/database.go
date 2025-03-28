@@ -36,7 +36,7 @@ type AppDatabase interface {
 	DeleteMessage(messageID, userID string) (*Message, string, error)
 	AddComment(messageID, userID, content string) (*Comment, error) 
 	DeleteComment(messageID, commentID, userID string) error 
-	AddUserToGroup(groupID, adderID, username string) error // not updated
+	AddUsersToGroup(groupID, adderID string, usernames []string) (*GroupAddResult, error)
 	LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, err error) // not updated
 	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, err error) // not updated
 	SetGroupPhoto(groupID string, userID string, newPhotoURL string) (oldPhotoURL string, updatedPhotoURL string, err error) // not updated
@@ -141,9 +141,21 @@ type MessageStatusUpdate struct {
 	ConversationID string
 }
 
+type GroupAddResult struct {
+    GroupID            string
+    GroupName          string
+    AddedUsers         []struct {
+        Username string
+        UserID   string
+    }
+    FailedUsers        []string
+    UpdatedMemberCount int
+    AddedBy            User  
+    Timestamp          time.Time
+}
+
 // Error definitions
 var (
-	// Current used in users, user, conversations
 	ErrUserNotFound         = errors.New("user not found") 
 	ErrDuplicateUsername    = errors.New("username already taken") 
     ErrUnauthorized         = errors.New("user unauthorized")
@@ -151,7 +163,7 @@ var (
 	ErrMessageNotFound      = errors.New("message not found")
 	ErrGroupNotFound        = errors.New("group not found")
 	ErrInvalidGroupName     = errors.New("invalid group name")
-	ErrUserAlreadyInGroup   = fmt.Errorf("user is already a member of the group")
+	ErrUserAlreadyInGroup   = errors.New("user is already a member of the group")
 	ErrInvalidNameLength = errors.New("invalid name length")
 	ErrInvalidNameFormat = errors.New("invalid name format")
 	ErrNameAlreadyTaken  = errors.New("name already taken")

@@ -22,7 +22,7 @@ func (rt *_router) Handler() http.Handler {
 	rt.router.DELETE("/messages/:messageId", rt.withAuth(rt.handleDeleteMessage)) // Updated
 	rt.router.POST("/messages/:messageId/comments", rt.withAuth(rt.handleAddComment)) // Updated, works currently, test after fixing details
 	rt.router.DELETE("/messages/:messageId/comments/:commentId", rt.withAuth(rt.handleDeleteComment)) // Updated, test later
-	rt.router.POST("/groups/:groupId", rt.withAuth(rt.handleAddToGroup))
+	rt.router.POST("/groups/:groupId", rt.withAuth(rt.handleAddToGroup)) // Updated
 	rt.router.DELETE("/groups/:groupId", rt.withAuth(rt.handleLeaveGroup))
 	rt.router.PUT("/groups/:groupId", rt.withAuth(rt.handleSetGroupName))
 	rt.router.PATCH("/groups/:groupId", rt.withAuth(rt.handleSetGroupPhoto))
