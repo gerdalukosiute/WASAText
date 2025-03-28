@@ -785,6 +785,98 @@ func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, p
 	}
 }
 
+// handleUpdateMessageStatus handles the PUT request to update a message status
+func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
+	messageID := ps.ByName("messageId")
+
+
+	ctx.Logger.WithFields(logrus.Fields{
+		"messageID": messageID,
+		"userID":    userID,
+	}).Info("Handling update message status request")
+
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ctx.Logger.WithError(err).Error("Invalid request body")
+		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+
+	// Validate the status
+	validStatuses := []string{"delivered", "read"}
+	isValid := false
+	for _, status := range validStatuses {
+		if req.Status == status {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		ctx.Logger.WithField("status", req.Status).Error("Invalid status")
+		sendJSONError(w, "Invalid status", http.StatusBadRequest)
+		return
+	}
+
+
+	// Update the message status
+	statusUpdate, err := rt.db.UpdateMessageStatus(messageID, userID, req.Status)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to update message status")
+		
+		var statusCode int
+		var errorMessage string
+		
+		if errors.Is(err, database.ErrMessageNotFound) {
+			statusCode = http.StatusNotFound
+			errorMessage = "Message not found"
+		} else if errors.Is(err, database.ErrUnauthorized) {
+			statusCode = http.StatusForbidden
+			errorMessage = "Not permitted"
+		} else {
+			statusCode = http.StatusInternalServerError
+			errorMessage = "Internal server error"
+		}
+		
+		sendJSONError(w, errorMessage, statusCode)
+		return
+	}
+
+
+	// Create the response according to the API documentation
+	response := struct {
+		MessageID      string    `json:"messageId"`
+		Status         string    `json:"status"`
+		UpdatedBy      struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		} `json:"updatedBy"`
+		UpdatedAt      string    `json:"updatedAt"`
+		ConversationID string    `json:"conversationId"`
+	}{
+		MessageID: statusUpdate.MessageID,
+		Status:    statusUpdate.Status,
+		UpdatedBy: struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		}{
+			Username: statusUpdate.UpdatedBy.Name,
+			UserID:   statusUpdate.UpdatedBy.ID,
+		},
+		UpdatedAt:      statusUpdate.UpdatedAt.Format(time.RFC3339),
+		ConversationID: statusUpdate.ConversationID,
+	}
+
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to encode response")
+	}
+}
+
 // Updated above
 
 func convertMessages(dbMessages []database.Message) []MessageResponse {
@@ -874,68 +966,6 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
-}
-
-func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	messageID := ps.ByName("messageId")
-
-	ctx.Logger.WithFields(logrus.Fields{
-		"messageID": messageID,
-		"userID":    userID,
-	}).Info("Handling update message status request")
-
-	var req struct {
-		Status string `json:"status"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		ctx.Logger.WithError(err).Error("Invalid request body")
-		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Validate the status
-	validStatuses := []string{"delivered", "read"}
-	if !contains(validStatuses, req.Status) {
-		ctx.Logger.WithField("status", req.Status).Error("Invalid status")
-		sendJSONError(w, "Invalid status", http.StatusBadRequest)
-		return
-	}
-
-	err := rt.db.UpdateMessageStatus(messageID, userID, req.Status)
-	if err != nil {
-		switch err {
-		case database.ErrMessageNotFound:
-			ctx.Logger.WithError(err).Error("Message not found")
-			sendJSONError(w, "Message not found", http.StatusNotFound)
-		case database.ErrUnauthorized:
-			ctx.Logger.WithError(err).Error("User not authorized to update message status")
-			sendJSONError(w, "Unauthorized", http.StatusForbidden)
-		default:
-			ctx.Logger.WithError(err).Error("Failed to update message status")
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Fetch the updated message
-	message, err := rt.db.GetMessageByID(messageID)
-	if err != nil {
-		ctx.Logger.WithError(err).Error("Failed to fetch updated message")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Convert the single message to the response format using the existing conversion function
-	convertedMessages := convertMessages([]database.Message{*message})
-	if len(convertedMessages) == 0 {
-		ctx.Logger.Error("Failed to convert message")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	response := convertedMessages[0]
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
 }
 
 func (rt *_router) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {

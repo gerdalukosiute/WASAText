@@ -888,6 +888,148 @@ func (db *appdbimpl) DeleteComment(messageID, commentID, userID string) error {
 	return nil
 }
 
+// UpdateMessageStatus updates the status of a message
+func (db *appdbimpl) UpdateMessageStatus(messageID, userID, newStatus string) (*MessageStatusUpdate, error) {
+	// Start a transaction
+	tx, err := db.c.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("error starting transaction: %w", err)
+	}
+
+
+	// Ensure transaction is rolled back if an error occurs
+	defer func() {
+		if tx != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+			}
+		}
+	}()
+
+
+	// Check if the message exists and get its details
+	var conversationID string
+	var currentStatus string
+	var senderID string
+	err = tx.QueryRow("SELECT conversation_id, status, sender_id FROM messages WHERE id = ?", messageID).Scan(&conversationID, &currentStatus, &senderID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrMessageNotFound
+		}
+		return nil, fmt.Errorf("error fetching message: %w", err)
+	}
+
+
+	// Check if the user is part of the conversation
+	var count int
+	err = tx.QueryRow("SELECT COUNT(*) FROM user_conversations WHERE user_id = ? AND conversation_id = ?", userID, conversationID).Scan(&count)
+	if err != nil {
+		return nil, fmt.Errorf("error checking user authorization: %w", err)
+	}
+	if count == 0 {
+		return nil, ErrUnauthorized
+	}
+
+
+	// Check if the user is the sender (sender cannot update status of their own messages)
+	if userID == senderID {
+		return nil, ErrUnauthorized
+	}
+
+
+	// Get the current time for updatedAt
+	updatedAt := time.Now().UTC()
+
+
+	// Check if it's a group conversation
+	var isGroup bool
+	var participantCount int
+	err = tx.QueryRow("SELECT is_group, (SELECT COUNT(*) FROM user_conversations WHERE conversation_id = ?) FROM conversations WHERE id = ?", conversationID, conversationID).Scan(&isGroup, &participantCount)
+	if err != nil {
+		return nil, fmt.Errorf("error checking conversation type: %w", err)
+	}
+
+
+	// Update or insert the user's read status
+	_, err = tx.Exec(`
+		INSERT INTO message_read_status (message_id, user_id, status) 
+		VALUES (?, ?, ?) 
+		ON CONFLICT(message_id, user_id) DO UPDATE SET status = ?
+	`, messageID, userID, newStatus, newStatus)
+	if err != nil {
+		return nil, fmt.Errorf("error updating user read status: %w", err)
+	}
+
+
+	// Determine the overall message status
+	var overallStatus string
+	if isGroup {
+		// For group conversations, check if all participants (except the sender) have read the message
+		var readCount int
+		err = tx.QueryRow(`
+			SELECT COUNT(*) 
+			FROM message_read_status 
+			WHERE message_id = ? AND status = 'read' AND user_id != ?
+		`, messageID, senderID).Scan(&readCount)
+		if err != nil {
+			return nil, fmt.Errorf("error checking read status: %w", err)
+		}
+
+
+		if readCount >= participantCount-1 { // All participants except the sender have read the message
+			overallStatus = "read"
+		} else {
+			overallStatus = "delivered"
+		}
+	} else {
+		// For 1-on-1 conversations, the status is simply the recipient's status
+		overallStatus = newStatus
+	}
+
+
+	// Update the message status if it's changing
+	if currentStatus != overallStatus {
+		_, err = tx.Exec("UPDATE messages SET status = ? WHERE id = ?", overallStatus, messageID)
+		if err != nil {
+			return nil, fmt.Errorf("error updating message status: %w", err)
+		}
+	}
+
+
+	// Get the username of the user who updated the status
+	var username string
+	err = tx.QueryRow("SELECT name FROM users WHERE id = ?", userID).Scan(&username)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching username: %w", err)
+	}
+
+
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("error committing transaction: %w", err)
+	}
+
+
+	// Set tx to nil to prevent rollback in defer function
+	tx = nil
+
+
+	// Create and return the status update information
+	statusUpdate := &MessageStatusUpdate{
+		MessageID:      messageID,
+		Status:         overallStatus,
+		UpdatedBy: User{
+			ID:   userID,
+			Name: username,
+		},
+		UpdatedAt:      updatedAt,
+		ConversationID: conversationID,
+	}
+
+
+	return statusUpdate, nil
+}
+
 // UPDATED TO THIS POINT 
 
 func (db *appdbimpl) DeleteMessage(messageID, userID string) (*Message, error) {
@@ -960,80 +1102,6 @@ func (db *appdbimpl) DeleteMessage(messageID, userID string) (*Message, error) {
 	}
 
 	return &messageToDelete, nil
-}
-
-func (db *appdbimpl) UpdateMessageStatus(messageID, userID, newStatus string) error {
-	// Start a transaction
-	tx, err := db.c.Begin()
-	if err != nil {
-		return fmt.Errorf("error starting transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Check if the user is authorized to update this message
-	var conversationID string
-	var currentStatus string
-	err = tx.QueryRow("SELECT conversation_id, status FROM messages WHERE id = ?", messageID).Scan(&conversationID, &currentStatus)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return ErrMessageNotFound
-		}
-		return fmt.Errorf("error fetching message: %w", err)
-	}
-
-	// Check if the user is part of the conversation
-	var count int
-	err = tx.QueryRow("SELECT COUNT(*) FROM user_conversations WHERE user_id = ? AND conversation_id = ?", userID, conversationID).Scan(&count)
-	if err != nil {
-		return fmt.Errorf("error checking user authorization: %w", err)
-	}
-	if count == 0 {
-		return ErrUnauthorized
-	}
-
-	// Check if it's a group conversation
-	var participantCount int
-	err = tx.QueryRow("SELECT COUNT(*) FROM user_conversations WHERE conversation_id = ?", conversationID).Scan(&participantCount)
-	if err != nil {
-		return fmt.Errorf("error checking conversation type: %w", err)
-	}
-
-	if participantCount > 2 {
-		// It's a group conversation
-		// Update or insert the user's read status
-		_, err = tx.Exec("INSERT INTO message_read_status (message_id, user_id, status) VALUES (?, ?, ?) ON CONFLICT(message_id, user_id) DO UPDATE SET status = ?", messageID, userID, newStatus, newStatus)
-		if err != nil {
-			return fmt.Errorf("error updating user read status: %w", err)
-		}
-
-		// Check if all participants (except the sender) have read the message
-		var readCount int
-		err = tx.QueryRow("SELECT COUNT(*) FROM message_read_status WHERE message_id = ? AND status = 'read'", messageID).Scan(&readCount)
-		if err != nil {
-			return fmt.Errorf("error checking read status: %w", err)
-		}
-
-		if readCount == participantCount-1 { // All participants except the sender have read the message
-			newStatus = "read"
-		} else {
-			newStatus = "delivered"
-		}
-	}
-
-	// Update the message status if it's changing
-	if currentStatus != newStatus {
-		_, err = tx.Exec("UPDATE messages SET status = ? WHERE id = ?", newStatus, messageID)
-		if err != nil {
-			return fmt.Errorf("error updating message status: %w", err)
-		}
-	}
-
-	// Commit the transaction
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("error committing transaction: %w", err)
-	}
-
-	return nil
 }
 
 func (db *appdbimpl) GetMessageByID(messageID string) (*Message, error) {

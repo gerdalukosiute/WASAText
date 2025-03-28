@@ -43,7 +43,7 @@ type AppDatabase interface {
 	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, err error) // not updated
 	SetGroupPhoto(groupID string, userID string, newPhotoURL string) (oldPhotoURL string, updatedPhotoURL string, err error) // not updated
 	UserExists(userID string) (bool, error)
-	UpdateMessageStatus(messageID, userID, newStatus string) error // not updated
+	UpdateMessageStatus(messageID, userID, newStatus string) (*MessageStatusUpdate, error)
 	GetMessageByID(messageID string) (*Message, error)
 	Ping() error
 }
@@ -77,7 +77,7 @@ type Participant struct {
 	Name string
 }
 
-// Update the Message struct to include forwarding information
+// Message struct represents a message
 type Message struct {
 	ID               string
 	SenderID         string
@@ -96,7 +96,7 @@ type Message struct {
 }
 
 
-// Add a new struct for forwarded message details
+// New struct for forwarded message details
 type ForwardedMessage struct {
 	ID               string
 	SenderID         string
@@ -134,10 +134,13 @@ type Conversation struct {
 	}
 }
 
-// Message status symmary
-type MessageStatus struct {
-	OverallStatus     string            `json:"overallStatus"`
-	RecipientStatuses map[string]string `json:"recipientStatuses"`
+// MessageStatusUpdate represents the result of a message status update
+type MessageStatusUpdate struct {
+	MessageID      string
+	Status         string
+	UpdatedBy      User
+	UpdatedAt      time.Time
+	ConversationID string
 }
 
 // Error definitions
@@ -147,12 +150,10 @@ var (
 	ErrDuplicateUsername    = errors.New("username already taken") 
     ErrUnauthorized         = errors.New("user unauthorized")
 	ErrConversationNotFound = errors.New("conversation not found")
-
 	ErrMessageNotFound      = errors.New("message not found")
 	ErrGroupNotFound        = errors.New("group not found")
 	ErrInvalidGroupName     = errors.New("invalid group name")
 	ErrUserAlreadyInGroup   = fmt.Errorf("user is already a member of the group")
-    // User login errors
 	ErrInvalidNameLength = errors.New("invalid name length")
 	ErrInvalidNameFormat = errors.New("invalid name format")
 	ErrNameAlreadyTaken  = errors.New("name already taken")
