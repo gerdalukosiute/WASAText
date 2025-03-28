@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 	"math/rand"
 
@@ -266,16 +265,6 @@ func createTables(db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("error creating table: %w", err)
 		}
-	}
-
-	// Add 'status' column to messages table if it doesn't exist
-	_, err := db.Exec(`ALTER TABLE messages ADD COLUMN status TEXT`)
-	if err != nil {
-		// If the error is not "duplicate column name", return the error
-		if !strings.Contains(err.Error(), "duplicate column name") {
-			return fmt.Errorf("error adding status column: %w", err)
-		}
-		// If the error is "duplicate column name", the column already exists, so we can ignore it
 	}
 
 	logrus.Info("Database tables created or already exist")
