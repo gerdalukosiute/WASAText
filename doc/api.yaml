@@ -311,96 +311,8 @@ paths:
             List of conversations retrieved successfully
           content:
             application/json:
-              schema:
-                type: object
-                description: |
-                  Conversation details
-                properties:
-                  conversations:
-                    type: array
-                    description: |
-                      List of user conversations
-                    minItems: 0
-                    maxItems: 10000
-                    items:
-                      type: object
-                      description: |
-                        Conversation details
-                      properties:
-                        conversationId:
-                          type: string
-                          description: |
-                            Unique identifier for the conversation
-                          pattern: '^[a-zA-Z0-9_-]{6,20}$'
-                          minLength: 6
-                          maxLength: 20
-                          example: "chat207"
-                        title:
-                          type: string
-                          description: |
-                            Username of recipient or group name
-                          pattern: '^[a-zA-Z0-9_-]{3,16}$'
-                          minLength: 3
-                          maxLength: 16
-                          example: "Lisa"
-                        createdAt:
-                          type: string
-                          format: date-time
-                          description: |
-                            Date and time when the conversation was created
-                          example: "2025-01-10T09:15:00Z"
-                          minLength: 10
-                          maxLength: 150
-                        profilePhotoId:
-                          type: string
-                          description: |
-                            Identifier of the profile or group photo
-                          pattern: "^[a-zA-Z0-9_-]{10,30}$"
-                          minLength: 10
-                          maxLength: 30
-                          example: "photo_789012"
-                        isGroup:
-                          type: boolean
-                          description: |
-                            Indicates if the conversation is a group
-                          example: false
-                        lastMessage:
-                          type: object
-                          description: |
-                            Details about the last message
-                          properties:
-                            type:
-                              type: string
-                              enum: [text, photo]
-                              description: |
-                                Type of the last message
-                              minLength: 4
-                              maxLength: 5
-                              example: "photo"
-                            content:
-                              type: string
-                              description: |
-                                Text preview of the last message (if `type` is `text`) or
-                                an icon (if `type` is `photo`).
-                              pattern: "^.{0,100}$"
-                              minLength: 0
-                              maxLength: 100
-                              example: "📷"
-                            timestamp:
-                              type: string
-                              format: date-time
-                              description: |
-                                Date and time of the last message
-                              example: "2025-01-11T14:30:00Z"
-                              minLength: 10
-                              maxLength: 150
-                  total:
-                    type: integer
-                    description: |
-                      Total number of conversations
-                    minimum: 0
-                    maximum: 10000
-                    example: 5
+              schema: 
+                $ref: '#/components/schemas/ConversationListResponse'
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/InternalServerError" }
     post:
@@ -459,95 +371,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                description: |
-                  Conversation details
-                properties:
-                  conversations:
-                    type: array
-                    description: |
-                      List of user conversations
-                    minItems: 0
-                    maxItems: 10000
-                    items:
-                      type: object
-                      description: |
-                        Conversation details
-                      properties:
-                        conversationId:
-                          type: string
-                          description: |
-                            Unique identifier for the conversation
-                          pattern: '^[a-zA-Z0-9_-]{6,20}$'
-                          minLength: 6
-                          maxLength: 20
-                          example: "chat207"
-                        title:
-                          type: string
-                          description: |
-                            Username of recipient or group name
-                          pattern: '^[a-zA-Z0-9_-]{3,16}$'
-                          minLength: 3
-                          maxLength: 16
-                          example: "Lisa"
-                        createdAt:
-                          type: string
-                          format: date-time
-                          description: |
-                            Date and time when the conversation was created
-                          example: "2025-01-10T09:15:00Z"
-                          minLength: 10
-                          maxLength: 150
-                        profilePhotoId:
-                          type: string
-                          description: |
-                            Identifier of the profile or group photo
-                          pattern: "^[a-zA-Z0-9_-]{10,30}$"
-                          minLength: 10
-                          maxLength: 30
-                          example: "photo_789012"
-                        isGroup:
-                          type: boolean
-                          description: |
-                            Indicates if the conversation is a group
-                          example: false
-                        lastMessage:
-                          type: object
-                          description: |
-                            Details about the last message
-                          properties:
-                            type:
-                              type: string
-                              enum: [text, photo]
-                              description: |
-                                Type of the last message
-                              minLength: 4
-                              maxLength: 5
-                              example: "photo"
-                            content:
-                              type: string
-                              description: |
-                                Text preview of the last message (if `type` is `text`) or
-                                an icon (if `type` is `photo`).
-                              pattern: "^.{0,100}$"
-                              minLength: 0
-                              maxLength: 100
-                              example: "📷"
-                            timestamp:
-                              type: string
-                              format: date-time
-                              description: |
-                                Date and time of the last message
-                              example: "2025-01-11T14:30:00Z"
-                              minLength: 10
-                              maxLength: 150
-                  total:
-                    type: integer
-                    description: |
-                      Total number of conversations
-                    minimum: 0
-                    maximum: 10000
-                    example: 5
+                $ref: '#/components/schemas/ConversationListResponse'
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
@@ -903,12 +727,11 @@ paths:
                   parentMessageId:
                     type: string
                     description: |
-                      ID of the message this is replying to. Only present for reply messages.
+                      ID of the message this is replying to. Only present for reply messages. Will be omitted in regular messages.
                     pattern: '^[a-zA-Z0-9_-]{10,30}$'
                     minLength: 10
                     maxLength: 30
                     example: "msg678906700"
-                    nullable: true
                   sender:
                     type: object
                     description: |
@@ -1011,7 +834,7 @@ paths:
                   The binary data of the requested media file
                 minLength: 100
                 maxLength: 10485760
-                example: "[binary data]"
+                example: "wahi90q904t7uhqnek8190je901y2hndiehd9waiksmaoiei294y7u2nwsmp%$&*()_{KG^&FVBS LjIHSNL,W Q;A];lljhjgjj"
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
@@ -2350,7 +2173,102 @@ components:
       name: Authorization
       description: |
         User identifier sent by the server in the login.
-      
+  schemas: 
+    ConversationListResponse:
+      type: object
+      description: |
+        Conversation list response
+      properties:
+        conversations:
+          type: array
+          description: |
+            List of user conversations
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/ConversationItem'
+        total:
+          type: integer
+          description: |
+            Total number of conversations
+          minimum: 0
+          maximum: 10000
+          example: 5
+    ConversationItem:
+      type: object
+      description: |
+        Conversation details
+      properties:
+        conversationId:
+          type: string
+          description: |
+            Unique identifier for the conversation
+          pattern: '^[a-zA-Z0-9_-]{6,20}$'
+          minLength: 6
+          maxLength: 20
+          example: "chat207"
+        title:
+          type: string
+          description: |
+            Username of recipient or group name
+          pattern: '^[a-zA-Z0-9_-]{3,16}$'
+          minLength: 3
+          maxLength: 16
+          example: "Lisa"
+        createdAt:
+          type: string
+          format: date-time
+          description: |
+            Date and time when the conversation was created
+          example: "2025-01-10T09:15:00Z"
+          minLength: 10
+          maxLength: 150
+        profilePhotoId:
+          type: string
+          description: |
+            Identifier of the profile or group photo
+          pattern: "^[a-zA-Z0-9_-]{10,30}$"
+          minLength: 10
+          maxLength: 30
+          example: "photo_789012"
+        isGroup:
+          type: boolean
+          description: |
+            Indicates if the conversation is a group
+          example: false
+        lastMessage:
+          $ref: '#/components/schemas/LastMessage'
+    LastMessage:
+      type: object
+      description: |
+        Details about the last message
+      properties:
+        type:
+          type: string
+          enum: [text, photo]
+          description: |
+            Type of the last message
+          minLength: 4
+          maxLength: 5
+          example: "photo"
+        content:
+          type: string
+          description: |
+            Text preview of the last message (if `type` is `text`) or
+            an icon (if `type` is `photo`).
+          pattern: "^.{0,100}$"
+          minLength: 0
+          maxLength: 100
+          example: "📷"
+        timestamp:
+          type: string
+          format: date-time
+          description: |
+            Date and time of the last message
+          example: "2025-01-11T14:30:00Z"
+          minLength: 10
+          maxLength: 150
+
   responses:
     Unauthorized:
       description: |
