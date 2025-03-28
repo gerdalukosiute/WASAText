@@ -689,6 +689,102 @@ func isValidEmoji(s string) bool {
 	return hasEmojiChar
 }
 
+// handleDeleteComment handles the DELETE request to remove an emoji reaction from a message
+func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
+	messageID := ps.ByName("messageId")
+	commentID := ps.ByName("commentId")
+
+
+	ctx.Logger.WithFields(logrus.Fields{
+		"messageID": messageID,
+		"commentID": commentID,
+		"userID":    userID,
+	}).Info("Attempting to delete emoji reaction")
+
+
+	err := rt.db.DeleteComment(messageID, commentID, userID)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to delete emoji reaction")
+		w.Header().Set("Content-Type", "application/json")
+		
+		var statusCode int
+		var errorMessage string
+		
+		if errors.Is(err, database.ErrMessageNotFound) {
+			statusCode = http.StatusNotFound
+			errorMessage = "Item not found"
+		} else if errors.Is(err, database.ErrUnauthorized) {
+			statusCode = http.StatusForbidden
+			errorMessage = "No permission to remove"
+		} else {
+			statusCode = http.StatusInternalServerError
+			errorMessage = "Internal server error"
+		}
+		
+		w.WriteHeader(statusCode)
+		if encodeErr := json.NewEncoder(w).Encode(map[string]string{"error": errorMessage}); encodeErr != nil {
+			ctx.Logger.WithError(encodeErr).Error("Failed to encode error response")
+		}
+		return
+	}
+
+
+	// Get the username of the user who deleted the comment
+	username, err := rt.db.GetUserNameByID(userID)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to get username")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		if encodeErr := json.NewEncoder(w).Encode(map[string]string{"error": "Internal server error"}); encodeErr != nil {
+			ctx.Logger.WithError(encodeErr).Error("Failed to encode error response")
+		}
+		return
+	}
+
+
+	// Get current time for removedAt field
+	removedAt := time.Now().UTC().Format(time.RFC3339)
+
+
+	ctx.Logger.WithFields(logrus.Fields{
+		"messageID": messageID,
+		"commentID": commentID,
+		"userID":    userID,
+		"username":  username,
+		"removedAt": removedAt,
+	}).Info("Emoji reaction deleted successfully")
+
+
+	// Create response according to the API documentation
+	response := struct {
+		MessageID    string `json:"messageId"`
+		InteractionID string `json:"interactionId"`
+		User         struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		} `json:"user"`
+		RemovedAt string `json:"removedAt"`
+	}{
+		MessageID:    messageID,
+		InteractionID: commentID,
+		User: struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		}{
+			Username: username,
+			UserID:   userID,
+		},
+		RemovedAt: removedAt,
+	}
+
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if encodeErr := json.NewEncoder(w).Encode(response); encodeErr != nil {
+		ctx.Logger.WithError(encodeErr).Error("Failed to encode success response")
+	}
+}
+
 // Updated above
 
 func convertMessages(dbMessages []database.Message) []MessageResponse {
@@ -884,64 +980,4 @@ func (rt *_router) handleDeleteMessage(w http.ResponseWriter, r *http.Request, p
 type deleteMessageResponse struct {
 	MessageID string `json:"messageId"`
 	Username  string `json:"username"`
-}
-
-func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	messageID := ps.ByName("messageId")
-	commentID := ps.ByName("commentId")
-
-	ctx.Logger.WithFields(logrus.Fields{
-		"messageID": messageID,
-		"commentID": commentID,
-		"userID":    userID,
-	}).Info("Attempting to delete comment")
-
-	err := rt.db.DeleteComment(messageID, commentID, userID)
-	if err != nil {
-		ctx.Logger.WithError(err).Error("Failed to delete comment")
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case err.Error() == "comment not found":
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Comment not found"})
-		case err.Error() == "user not authorized to access this message" || err.Error() == "user not authorized to delete this comment":
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized"})
-		default:
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Internal server error"})
-		}
-		return
-	}
-
-	// Get the username of the user who deleted the comment
-	username, err := rt.db.GetUserNameByID(userID)
-	if err != nil {
-		ctx.Logger.WithError(err).Error("Failed to get username")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Internal server error"})
-		return
-	}
-
-	ctx.Logger.WithFields(logrus.Fields{
-		"messageID": messageID,
-		"commentID": commentID,
-		"userID":    userID,
-		"username":  username,
-	}).Info("Comment deleted successfully")
-
-	response := struct {
-		MessageID string `json:"messageId"`
-		CommentID string `json:"commentId"`
-		Username  string `json:"username"`
-	}{
-		MessageID: messageID,
-		CommentID: commentID,
-		Username:  username,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
 }

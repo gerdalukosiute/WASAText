@@ -1307,7 +1307,7 @@ paths:
         in: path
         required: true
         description: |
-          Unique identifier of the message containing the reaction or reply
+          Unique identifier of the message containing the reaction 
         schema:
           type: string
           description: |
@@ -1320,7 +1320,7 @@ paths:
         in: path
         required: true
         description: |
-          Unique identifier of the reaction or reply to be removed
+          Unique identifier of the reaction to be removed
         schema:
           type: string
           description: |

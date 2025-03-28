@@ -811,6 +811,83 @@ func (db *appdbimpl) AddComment(messageID, userID, content string) (*Comment, er
 	}, nil
 }
 
+// DeleteComment removes a reaction from a message
+func (db *appdbimpl) DeleteComment(messageID, commentID, userID string) error {
+	// Start a transaction
+	tx, err := db.c.Begin()
+	if err != nil {
+		return fmt.Errorf("error starting transaction: %w", err)
+	}
+
+
+	// Ensure transaction is rolled back if an error occurs
+	defer func() {
+		if tx != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+			}
+		}
+	}()
+
+
+	// Check if the user is authorized to access the message
+	isAuthorized, err := db.IsUserAuthorized(userID, messageID)
+	if err != nil {
+		return fmt.Errorf("error checking user authorization: %w", err)
+	}
+	if !isAuthorized {
+		return ErrUnauthorized
+	}
+
+
+	// Check if the comment exists and get its user ID
+	var commentUserID string
+	err = tx.QueryRow("SELECT user_id FROM comments WHERE id = ? AND message_id = ?", commentID, messageID).Scan(&commentUserID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrMessageNotFound
+		}
+		return fmt.Errorf("error checking comment: %w", err)
+	}
+
+
+	// Check if the user is the owner of the comment
+	if commentUserID != userID {
+		return ErrUnauthorized
+	}
+
+
+	// Delete the comment
+	result, err := tx.Exec("DELETE FROM comments WHERE id = ?", commentID)
+	if err != nil {
+		return fmt.Errorf("error deleting comment: %w", err)
+	}
+
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error getting rows affected: %w", err)
+	}
+
+
+	if rowsAffected == 0 {
+		return ErrMessageNotFound
+	}
+
+
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("error committing transaction: %w", err)
+	}
+
+
+	// Set tx to nil to prevent rollback in defer function
+	tx = nil
+
+
+	return nil
+}
+
 // UPDATED TO THIS POINT 
 
 func (db *appdbimpl) DeleteMessage(messageID, userID string) (*Message, error) {
@@ -1011,61 +1088,7 @@ func (db *appdbimpl) GetMessageByID(messageID string) (*Message, error) {
 	return &msg, nil
 }
 
-func (db *appdbimpl) DeleteComment(messageID, commentID, userID string) error {
-	// Start a transaction
-	tx, err := db.c.Begin()
-	if err != nil {
-		return fmt.Errorf("error starting transaction: %w", err)
-	}
-	defer tx.Rollback() // Rollback the transaction if it's not committed
-
-	// Check if the user is authorized to access the message
-	isAuthorized, err := db.IsUserAuthorized(userID, messageID)
-	if err != nil {
-		return fmt.Errorf("error checking user authorization: %w", err)
-	}
-	if !isAuthorized {
-		return fmt.Errorf("user not authorized to access this message")
-	}
-
-	// Check if the comment exists and get its user ID
-	var commentUserID string
-	err = tx.QueryRow("SELECT user_id FROM comments WHERE id = ? AND message_id = ?", commentID, messageID).Scan(&commentUserID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("comment not found")
-		}
-		return fmt.Errorf("error checking comment: %w", err)
-	}
-
-	// Check if the user is the owner of the comment
-	if commentUserID != userID {
-		return fmt.Errorf("user not authorized to delete this comment")
-	}
-
-	// Delete the comment
-	result, err := tx.Exec("DELETE FROM comments WHERE id = ?", commentID)
-	if err != nil {
-		return fmt.Errorf("error deleting comment: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("error getting rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("comment not found")
-	}
-
-	// Commit the transaction
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("error committing transaction: %w", err)
-	}
-
-	return nil
-}
-
+// LAST
 func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*ConversationDetails, error) {
 	// First, check if the user is a participant in the conversation
 	var count int

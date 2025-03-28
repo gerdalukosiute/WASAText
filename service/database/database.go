@@ -27,25 +27,23 @@ type AppDatabase interface {
 	IsUserInConversation(userID, conversationID string) (bool, error)
 	GetUserNameByID(userID string) (string, error)
 	GenerateMessageID() (string, error) 
-	// New methods for media handling
     StoreMediaFile(fileData []byte, mimeType string) (string, error)
     GetMediaFile(mediaID string) ([]byte, string, error) 
-	// Rest not updated
-	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
-	GetComments(messageID string) ([]Comment, error)
+	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error) // not updated
+	GetComments(messageID string) ([]Comment, error) // not updated
 	ForwardMessage(originalMessageID, targetConversationID, userID string) (*ForwardedMessage, error)
 	IsUserAuthorized(userID string, messageID string) (bool, error) 
 	ConversationExists(conversationID string) (bool, error)
-	DeleteMessage(messageID, userID string) (*Message, error)
-	AddComment(messageID, userID, content string) (*Comment, error)
-	DeleteComment(messageID, commentID, userID string) error
-	GetGroupsForUser(userID string) ([]Group, error)
-	AddUserToGroup(groupID, adderID, username string) error
-	LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, err error)
-	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, err error)
-	SetGroupPhoto(groupID string, userID string, newPhotoURL string) (oldPhotoURL string, updatedPhotoURL string, err error)
+	DeleteMessage(messageID, userID string) (*Message, error) // not updated
+	AddComment(messageID, userID, content string) (*Comment, error) 
+	DeleteComment(messageID, commentID, userID string) error 
+	GetGroupsForUser(userID string) ([]Group, error) // not updated
+	AddUserToGroup(groupID, adderID, username string) error // not updated
+	LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, err error) // not updated
+	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, err error) // not updated
+	SetGroupPhoto(groupID string, userID string, newPhotoURL string) (oldPhotoURL string, updatedPhotoURL string, err error) // not updated
 	UserExists(userID string) (bool, error)
-	UpdateMessageStatus(messageID, userID, newStatus string) error
+	UpdateMessageStatus(messageID, userID, newStatus string) error // not updated
 	GetMessageByID(messageID string) (*Message, error)
 	Ping() error
 }
