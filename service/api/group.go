@@ -128,38 +128,70 @@ func (rt *_router) handleAddToGroup(w http.ResponseWriter, r *http.Request, ps h
 	}
 }
 
+// Updated
 func (rt *_router) handleLeaveGroup(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	groupID := ps.ByName("groupId")
+   groupID := ps.ByName("groupId")
 
-	username, isGroupDeleted, err := rt.db.LeaveGroup(groupID, userID)
-	if err != nil {
-		switch err {
-		case database.ErrUnauthorized:
-			ctx.Logger.Warn("Unauthorized attempt to leave group")
-			sendJSONError(w, "Unauthorized", http.StatusUnauthorized)
-		case database.ErrGroupNotFound:
-			ctx.Logger.Warn("Attempt to leave non-existent group")
-			sendJSONError(w, "Group not found", http.StatusNotFound)
-		default:
-			ctx.Logger.WithError(err).Error("Failed to leave group")
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		}
-		return
-	}
 
-	response := struct {
-		GroupID        string `json:"groupId"`
-		Username       string `json:"username"`
-		IsGroupDeleted bool   `json:"isGroupDeleted"`
-	}{
-		GroupID:        groupID,
-		Username:       username,
-		IsGroupDeleted: isGroupDeleted,
-	}
+   ctx.Logger.WithFields(logrus.Fields{
+       "groupID": groupID,
+       "userID":  userID,
+   }).Info("Handling leave group request")
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+
+   username, isGroupDeleted, remainingMemberCount, err := rt.db.LeaveGroup(groupID, userID)
+   if err != nil {
+       ctx.Logger.WithError(err).Error("Failed to leave group")
+      
+       var statusCode int
+       var errorMessage string
+      
+       if errors.Is(err, database.ErrUnauthorized) {
+           statusCode = http.StatusForbidden
+           errorMessage = "You are not a member of this group"
+       } else if errors.Is(err, database.ErrGroupNotFound) {
+           statusCode = http.StatusNotFound
+           errorMessage = "Group not found"
+       } else {
+           statusCode = http.StatusInternalServerError
+           errorMessage = "Internal server error"
+       }
+      
+       sendJSONError(w, errorMessage, statusCode)
+       return
+   }
+
+
+   // Create the response according to the API documentation
+   response := struct {
+       GroupID              string    `json:"groupId"`
+       User                 struct {
+           Username string `json:"username"`
+           UserID   string `json:"userId"`
+       } `json:"user"`
+       IsGroupDeleted       bool      `json:"isGroupDeleted"`
+       RemainingMemberCount int       `json:"remainingMemberCount"`
+       LeftAt               string    `json:"leftAt"`
+   }{
+       GroupID:              groupID,
+       User: struct {
+           Username string `json:"username"`
+           UserID   string `json:"userId"`
+       }{
+           Username: username,
+           UserID:   userID,
+       },
+       IsGroupDeleted:       isGroupDeleted,
+       RemainingMemberCount: remainingMemberCount,
+       LeftAt:               time.Now().Format(time.RFC3339),
+   }
+
+
+   w.Header().Set("Content-Type", "application/json")
+   w.WriteHeader(http.StatusOK)
+   if err := json.NewEncoder(w).Encode(response); err != nil {
+       ctx.Logger.WithError(err).Error("Failed to encode response")
+   }
 }
 
 func (rt *_router) handleSetGroupName(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {

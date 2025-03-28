@@ -162,23 +162,156 @@ func (db *appdbimpl) AddUsersToGroup(groupID, adderID string, usernames []string
 	return result, nil
 }
 
-// Update IsGroupMember to check both tables; used in leaving, photo and group name updates
-func (db *appdbimpl) IsGroupMember(groupID, userID string) (bool, error) {
-	var exists bool
-	err := db.c.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM user_conversations uc
-			JOIN conversations c ON uc.conversation_id = c.id
-			WHERE c.id = ? AND uc.user_id = ? AND c.is_group = 1
-		) AND EXISTS(
-			SELECT 1 FROM group_members
-			WHERE group_id = ? AND user_id = ?
-		)
-	`, groupID, userID, groupID, userID).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("error checking group membership: %w", err)
-	}
-	return exists, nil
+// Updated
+func (db *appdbimpl) LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, remainingMemberCount int, err error) {
+  // Check if the user is a member of the group
+ 	isMember, err := db.IsGroupMember(groupID, userID)
+ 	if err != nil {
+     	// If the error is that the group doesn't exist, return that specific error
+     	if errors.Is(err, ErrGroupNotFound) {
+        	return "", false, 0, ErrGroupNotFound
+     	}
+     	return "", false, 0, fmt.Errorf("error checking group membership: %w", err)
+ 	}
+ 	if !isMember {
+     	return "", false, 0, ErrUnauthorized
+ 	}
+
+
+  // Get the username
+  var name string
+  err = db.c.QueryRow("SELECT name FROM users WHERE id = ?", userID).Scan(&name)
+  if err != nil {
+      return "", false, 0, fmt.Errorf("error getting username: %w", err)
+  }
+
+
+  // Start a transaction
+  tx, err := db.c.Begin()
+  if err != nil {
+      return "", false, 0, fmt.Errorf("error starting transaction: %w", err)
+  }
+ 
+  // Ensure transaction is rolled back if an error occurs
+  defer func() {
+      if tx != nil {
+          if rollbackErr := tx.Rollback(); rollbackErr != nil {
+              logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+          }
+      }
+  }()
+
+
+  // Remove the user from the group in both tables
+  _, err = tx.Exec("DELETE FROM user_conversations WHERE conversation_id = ? AND user_id = ?", groupID, userID)
+  if err != nil {
+      return "", false, 0, fmt.Errorf("error removing user from user_conversations: %w", err)
+  }
+ 
+  _, err = tx.Exec("DELETE FROM group_members WHERE group_id = ? AND user_id = ?", groupID, userID)
+  if err != nil {
+      return "", false, 0, fmt.Errorf("error removing user from group_members: %w", err)
+  }
+
+
+  // Check if the group is empty
+  var memberCount int
+  err = tx.QueryRow("SELECT COUNT(*) FROM user_conversations WHERE conversation_id = ?", groupID).Scan(&memberCount)
+  if err != nil {
+      return "", false, 0, fmt.Errorf("error checking group member count: %w", err)
+  }
+
+
+  if memberCount == 0 {
+      // Delete the group from both tables
+      _, err = tx.Exec("DELETE FROM conversations WHERE id = ?", groupID)
+      if err != nil {
+          return "", false, 0, fmt.Errorf("error deleting empty group from conversations: %w", err)
+      }
+     
+      _, err = tx.Exec("DELETE FROM groups WHERE id = ?", groupID)
+      if err != nil {
+          return "", false, 0, fmt.Errorf("error deleting empty group from groups: %w", err)
+      }
+     
+      isGroupDeleted = true
+  }
+
+
+  // Commit the transaction
+  if err := tx.Commit(); err != nil {
+      return "", false, 0, fmt.Errorf("error committing transaction: %w", err)
+  }
+
+
+  // Set tx to nil to prevent rollback in defer function
+  tx = nil
+
+
+  return name, isGroupDeleted, memberCount, nil
+}
+
+// Updated
+func (db *appdbimpl) IsGroupMember(groupID string, userID string) (bool, error) {
+  // First check if the group exists
+  var groupExists int
+  err := db.c.QueryRow(`
+      SELECT COUNT(*)
+      FROM conversations
+      WHERE id = ? AND is_group = 1
+  `, groupID).Scan(&groupExists)
+ 
+  if err != nil {
+      return false, fmt.Errorf("error checking group existence: %w", err)
+  }
+ 
+  if groupExists == 0 {
+      return false, ErrGroupNotFound
+  }
+ 
+  // Now check if the user is a member in the user_conversations table
+  var isInUserConversations int
+  err = db.c.QueryRow(`
+      SELECT COUNT(*)
+      FROM user_conversations
+      WHERE conversation_id = ? AND user_id = ?
+  `, groupID, userID).Scan(&isInUserConversations)
+ 
+  if err != nil {
+      return false, fmt.Errorf("error checking user_conversations membership: %w", err)
+  }
+ 
+  // Also check the group_members table for consistency
+  var isInGroupMembers int
+  err = db.c.QueryRow(`
+      SELECT COUNT(*)
+      FROM group_members
+      WHERE group_id = ? AND user_id = ?
+  `, groupID, userID).Scan(&isInGroupMembers)
+ 
+  if err != nil {
+      // If there's an error with group_members, log it but rely on user_conversations
+      logrus.WithError(err).Warn("Error checking group_members table, using user_conversations result")
+      return isInUserConversations > 0, nil
+  }
+ 
+  // If the user is in both tables, they're definitely a member
+  if isInUserConversations > 0 && isInGroupMembers > 0 {
+      return true, nil
+  }
+ 
+  // If there's a discrepancy between the tables, log it
+  if isInUserConversations != isInGroupMembers {
+      logrus.WithFields(logrus.Fields{
+          "groupID": groupID,
+          "userID": userID,
+          "inUserConversations": isInUserConversations > 0,
+          "inGroupMembers": isInGroupMembers > 0,
+      }).Warn("Inconsistency between user_conversations and group_members tables")
+  }
+ 
+  // Use user_conversations as the source of truth
+  return isInUserConversations > 0, nil
 }
 
 func (db *appdbimpl) GetUserByUsername(username string) (User, error) {
@@ -188,68 +321,6 @@ func (db *appdbimpl) GetUserByUsername(username string) (User, error) {
 		return User{}, err
 	}
 	return user, nil
-}
-
-// Update LeaveGroup to remove from both tables
-func (db *appdbimpl) LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, err error) {
-	// Check if the user is a member of the group
-	isMember, err := db.IsGroupMember(groupID, userID)
-	if err != nil {
-		return "", false, fmt.Errorf("error checking group membership: %w", err)
-	}
-	if !isMember {
-		return "", false, ErrUnauthorized
-	}
-
-	// Get the username
-	err = db.c.QueryRow("SELECT name FROM users WHERE id = ?", userID).Scan(&username)
-	if err != nil {
-		return "", false, fmt.Errorf("error getting username: %w", err)
-	}
-
-	// Start a transaction
-	tx, err := db.c.Begin()
-	if err != nil {
-		return "", false, fmt.Errorf("error starting transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Remove the user from the group in both tables
-	_, err = tx.Exec("DELETE FROM user_conversations WHERE conversation_id = ? AND user_id = ?", groupID, userID)
-	if err != nil {
-		return "", false, fmt.Errorf("error removing user from user_conversations: %w", err)
-	}
-	_, err = tx.Exec("DELETE FROM group_members WHERE group_id = ? AND user_id = ?", groupID, userID)
-	if err != nil {
-		return "", false, fmt.Errorf("error removing user from group_members: %w", err)
-	}
-
-	// Check if the group is empty
-	var memberCount int
-	err = tx.QueryRow("SELECT COUNT(*) FROM user_conversations WHERE conversation_id = ?", groupID).Scan(&memberCount)
-	if err != nil {
-		return "", false, fmt.Errorf("error checking group member count: %w", err)
-	}
-
-	if memberCount == 0 {
-		// Delete the group from both tables
-		_, err = tx.Exec("DELETE FROM conversations WHERE id = ?", groupID)
-		if err != nil {
-			return "", false, fmt.Errorf("error deleting empty group from conversations: %w", err)
-		}
-		_, err = tx.Exec("DELETE FROM groups WHERE id = ?", groupID)
-		if err != nil {
-			return "", false, fmt.Errorf("error deleting empty group from groups: %w", err)
-		}
-		isGroupDeleted = true
-	}
-
-	// Commit the transaction
-	if err := tx.Commit(); err != nil {
-		return "", false, fmt.Errorf("error committing transaction: %w", err)
-	}
-
-	return username, isGroupDeleted, nil
 }
 
 // Update SetGroupName to update both tables

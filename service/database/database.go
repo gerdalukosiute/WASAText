@@ -37,7 +37,8 @@ type AppDatabase interface {
 	AddComment(messageID, userID, content string) (*Comment, error) 
 	DeleteComment(messageID, commentID, userID string) error 
 	AddUsersToGroup(groupID, adderID string, usernames []string) (*GroupAddResult, error)
-	LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, err error) // not updated
+	LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, remainingMemberCount int, err error)
+	IsGroupMember(groupID, userID string) (bool, error) 
 	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, err error) // not updated
 	SetGroupPhoto(groupID string, userID string, newPhotoURL string) (oldPhotoURL string, updatedPhotoURL string, err error) // not updated
 	UserExists(userID string) (bool, error)
