@@ -817,7 +817,7 @@ paths:
       tags: ["media"]
       summary: Get media file
       description: |
-        Retrieves a media file by ID. Used to fetch binary data of media files in messages.
+        Retrieves a media file by ID. Used to fetch binary data of media files.
       operationId: getMedia
       security: 
         - UserIdentifierAuth: []

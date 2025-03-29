@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"strings"
+	"io"
 
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/gerdalukosiute/WASAText/service/database"
@@ -297,45 +299,136 @@ func (rt *_router) handleSetGroupName(w http.ResponseWriter, r *http.Request, ps
    }
 }
 
+// Updated
 func (rt *_router) handleSetGroupPhoto(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-	groupID := ps.ByName("groupId")
+   groupID := ps.ByName("groupId")
 
-	var req struct {
-		GroupPhoto string `json:"groupPhoto"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		ctx.Logger.WithError(err).Warn("Invalid request body")
-		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
 
-	oldGroupPhoto, newGroupPhoto, err := rt.db.SetGroupPhoto(groupID, userID, req.GroupPhoto)
-	if err != nil {
-		switch err {
-		case database.ErrUnauthorized:
-			ctx.Logger.Warn("Unauthorized attempt to set group photo")
-			sendJSONError(w, "Unauthorized", http.StatusUnauthorized)
-		case database.ErrGroupNotFound:
-			ctx.Logger.Warn("Attempt to set photo of non-existent group")
-			sendJSONError(w, "Group not found", http.StatusNotFound)
-		default:
-			ctx.Logger.WithError(err).Error("Failed to set group photo")
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-		}
-		return
-	}
+   ctx.Logger.WithFields(logrus.Fields{
+       "groupID": groupID,
+       "userID":  userID,
+   }).Info("Handling set group photo request")
 
-	response := struct {
-		GroupID       string `json:"groupId"`
-		OldGroupPhoto string `json:"oldGroupPhoto"`
-		NewGroupPhoto string `json:"newGroupPhoto"`
-	}{
-		GroupID:       groupID,
-		OldGroupPhoto: oldGroupPhoto,
-		NewGroupPhoto: newGroupPhoto,
-	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+   // Check if the content type is multipart/form-data
+   if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+       ctx.Logger.Warn("Invalid content type, expected multipart/form-data")
+       sendJSONError(w, "Invalid content type, expected multipart/form-data", http.StatusUnsupportedMediaType)
+       return
+   }
+
+
+   // Parse the multipart form data with a 5MB limit
+   if err := r.ParseMultipartForm(5 * 1024 * 1024); err != nil {
+       ctx.Logger.WithError(err).Warn("Failed to parse multipart form")
+       if strings.Contains(err.Error(), "request body too large") {
+           sendJSONError(w, "Photo file too large, maximum size is 5MB", http.StatusRequestEntityTooLarge)
+       } else {
+           sendJSONError(w, "Invalid request format", http.StatusBadRequest)
+       }
+       return
+   }
+
+
+   // Get the uploaded file
+   file, header, err := r.FormFile("photo")
+   if err != nil {
+       ctx.Logger.WithError(err).Warn("Failed to get photo from form")
+       sendJSONError(w, "Photo file is required", http.StatusBadRequest)
+       return
+   }
+   defer file.Close()
+
+
+   // Check file size
+   if header.Size < 100 {
+       ctx.Logger.Warn("Photo file too small")
+       sendJSONError(w, "Photo file too small, minimum size is 100 bytes", http.StatusBadRequest)
+       return
+   }
+   if header.Size > 5*1024*1024 {
+       ctx.Logger.Warn("Photo file too large")
+       sendJSONError(w, "Photo file too large, maximum size is 5MB", http.StatusRequestEntityTooLarge)
+       return
+   }
+
+
+   // Read the file data
+   fileBytes, err := io.ReadAll(file)
+   if err != nil {
+       ctx.Logger.WithError(err).Error("Failed to read photo file")
+       sendJSONError(w, "Failed to read photo file", http.StatusInternalServerError)
+       return
+   }
+
+
+   // Detect content type
+   contentType := http.DetectContentType(fileBytes)
+  
+   // Update the group photo
+   oldPhotoID, newPhotoID, err := rt.db.SetGroupPhoto(groupID, userID, fileBytes, contentType)
+   if err != nil {
+       ctx.Logger.WithError(err).Error("Failed to set group photo")
+      
+       var statusCode int
+       var errorMessage string
+      
+       if errors.Is(err, database.ErrUnauthorized) {
+           statusCode = http.StatusForbidden
+           errorMessage = "No permission to update photo"
+       } else if errors.Is(err, database.ErrGroupNotFound) {
+           statusCode = http.StatusNotFound
+           errorMessage = "Group not found"
+       } else if strings.Contains(err.Error(), "unsupported content type") {
+           statusCode = http.StatusUnsupportedMediaType
+           errorMessage = "Invalid file type, expected image"
+       } else {
+           statusCode = http.StatusInternalServerError
+           errorMessage = "Internal server error"
+       }
+      
+       sendJSONError(w, errorMessage, statusCode)
+       return
+   }
+
+
+   // Get the username for the response
+   username, err := rt.db.GetUserNameByID(userID)
+   if err != nil {
+       ctx.Logger.WithError(err).Error("Failed to get username")
+       sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+       return
+   }
+
+
+   // Create the response according to the API documentation
+   response := struct {
+       GroupID    string    `json:"groupId"`
+       OldPhotoID string    `json:"oldPhotoId"`
+       NewPhotoID string    `json:"newPhotoId"`
+       UpdatedBy  struct {
+           Username string `json:"username"`
+           UserID   string `json:"userId"`
+       } `json:"updatedBy"`
+       UpdatedAt  string    `json:"updatedAt"`
+   }{
+       GroupID:    groupID,
+       OldPhotoID: oldPhotoID,
+       NewPhotoID: newPhotoID,
+       UpdatedBy: struct {
+           Username string `json:"username"`
+           UserID   string `json:"userId"`
+       }{
+           Username: username,
+           UserID:   userID,
+       },
+       UpdatedAt:  time.Now().Format(time.RFC3339),
+   }
+
+
+   w.Header().Set("Content-Type", "application/json")
+   w.WriteHeader(http.StatusOK)
+   if err := json.NewEncoder(w).Encode(response); err != nil {
+       ctx.Logger.WithError(err).Error("Failed to encode response")
+   }
 }

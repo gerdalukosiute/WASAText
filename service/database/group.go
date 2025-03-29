@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 	"errors"
 	"time"
 	"regexp"
@@ -425,6 +424,102 @@ func (db *appdbimpl) SetGroupName(groupID string, userID string, newName string)
    return oldName, newName, memberCount, nil
 }
 
+// Updated
+func (db *appdbimpl) SetGroupPhoto(groupID string, userID string, fileData []byte, contentType string) (oldPhotoID string, newPhotoID string, err error) {
+   // Validate user ID
+   if !db.IsValidUserID(userID) {
+       return "", "", ErrUnauthorized
+   }
+
+
+   // Validate image type
+   if !db.IsValidImageType(contentType) {
+       return "", "", fmt.Errorf("unsupported content type: %s", contentType)
+   }
+
+
+   // Check if the user is a member of the group
+   isMember, err := db.IsGroupMember(groupID, userID)
+   if err != nil {
+       // If the error is that the group doesn't exist, return that specific error
+       if errors.Is(err, ErrGroupNotFound) {
+           return "", "", ErrGroupNotFound
+       }
+       return "", "", fmt.Errorf("error checking group membership: %w", err)
+   }
+   if !isMember {
+       return "", "", ErrUnauthorized
+   }
+
+
+   // Start a transaction
+   tx, err := db.c.Begin()
+   if err != nil {
+       return "", "", fmt.Errorf("error starting transaction: %w", err)
+   }
+  
+   // Ensure transaction is rolled back if an error occurs
+   defer func() {
+       if tx != nil {
+           if rollbackErr := tx.Rollback(); rollbackErr != nil {
+               // Just log the rollback error, don't override the original error
+               logrus.WithError(rollbackErr).Error("Error rolling back transaction")
+           }
+       }
+   }()
+
+
+   // Get the old photo ID
+   var oldPhotoIDNullable sql.NullString
+   err = tx.QueryRow("SELECT profile_photo FROM conversations WHERE id = ? AND is_group = 1", groupID).Scan(&oldPhotoIDNullable)
+   if err != nil {
+       if errors.Is(err, sql.ErrNoRows) {
+           return "", "", ErrGroupNotFound
+       }
+       return "", "", fmt.Errorf("error getting old group photo ID: %w", err)
+   }
+  
+   // Handle NULL profile_photo
+   if oldPhotoIDNullable.Valid {
+       oldPhotoID = oldPhotoIDNullable.String
+   } else {
+       oldPhotoID = ""
+   }
+
+
+   // Generate a new photo ID using the existing utility function
+   newPhotoID = db.GeneratePhotoID(userID)
+  
+  
+   // Store the photo metadata in the database
+   _, err = tx.Exec(`
+       INSERT INTO media_files (id, file_data, mime_type, created_at)
+       VALUES (?, ?, ?, ?)
+   `, newPhotoID, fileData, contentType, time.Now())
+   if err != nil {
+       return "", "", fmt.Errorf("error storing photo file: %w", err)
+   }
+
+
+   // Update the group photo ID in conversations table
+   _, err = tx.Exec("UPDATE conversations SET profile_photo = ? WHERE id = ? AND is_group = 1", newPhotoID, groupID)
+   if err != nil {
+       return "", "", fmt.Errorf("error updating group photo ID in conversations: %w", err)
+   }
+
+
+   // Commit the transaction
+   if err := tx.Commit(); err != nil {
+       return "", "", fmt.Errorf("error committing transaction: %w", err)
+   }
+  
+   // Set tx to nil to prevent rollback in defer function
+   tx = nil
+
+
+   return oldPhotoID, newPhotoID, nil
+}
+
 func (db *appdbimpl) GetUserByUsername(username string) (User, error) {
 	var user User
 	err := db.c.QueryRow("SELECT id, name FROM users WHERE name = ?", username).Scan(&user.ID, &user.Name)
@@ -432,58 +527,6 @@ func (db *appdbimpl) GetUserByUsername(username string) (User, error) {
 		return User{}, err
 	}
 	return user, nil
-}
-
-// Update SetGroupPhoto to update both tables (if applicable)
-func (db *appdbimpl) SetGroupPhoto(groupID string, userID string, newPhotoURL string) (oldPhotoURL string, updatedPhotoURL string, err error) {
-	// Check if the user is a member of the group
-	isMember, err := db.IsGroupMember(groupID, userID)
-	if err != nil {
-		return "", "", fmt.Errorf("error checking group membership: %w", err)
-	}
-	if !isMember {
-		return "", "", ErrUnauthorized
-	}
-
-	// Start a transaction
-	tx, err := db.c.Begin()
-	if err != nil {
-		return "", "", fmt.Errorf("error starting transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Get the old photo URL
-	err = tx.QueryRow("SELECT COALESCE(profile_photo, '') FROM conversations WHERE id = ? AND is_group = 1", groupID).Scan(&oldPhotoURL)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", "", ErrGroupNotFound
-		}
-		return "", "", fmt.Errorf("error getting old group photo URL: %w", err)
-	}
-
-	// Update the group photo URL in conversations table
-	_, err = tx.Exec("UPDATE conversations SET profile_photo = ? WHERE id = ? AND is_group = 1", newPhotoURL, groupID)
-	if err != nil {
-		return "", "", fmt.Errorf("error updating group photo URL in conversations: %w", err)
-	}
-
-	// Update the group photo URL in groups table if it has a profile_photo column
-	// If the groups table doesn't have a profile_photo column, you can skip this part
-	_, err = tx.Exec("UPDATE groups SET profile_photo = ? WHERE id = ?", newPhotoURL, groupID)
-	if err != nil {
-		// If the error is due to the column not existing, we can ignore it
-		// Otherwise, return the error
-		if !strings.Contains(err.Error(), "no such column: profile_photo") {
-			return "", "", fmt.Errorf("error updating group photo URL in groups: %w", err)
-		}
-	}
-
-	// Commit the transaction
-	if err := tx.Commit(); err != nil {
-		return "", "", fmt.Errorf("error committing transaction: %w", err)
-	}
-
-	return oldPhotoURL, newPhotoURL, nil
 }
 
 func (db *appdbimpl) UserExists(userID string) (bool, error) {

@@ -25,7 +25,7 @@ func (rt *_router) Handler() http.Handler {
 	rt.router.POST("/groups/:groupId", rt.withAuth(rt.handleAddToGroup)) // Updated
 	rt.router.DELETE("/groups/:groupId", rt.withAuth(rt.handleLeaveGroup)) // Updated
 	rt.router.PUT("/groups/:groupId", rt.withAuth(rt.handleSetGroupName)) // Updated
-	rt.router.PATCH("/groups/:groupId", rt.withAuth(rt.handleSetGroupPhoto))
+	rt.router.PATCH("/groups/:groupId", rt.withAuth(rt.handleSetGroupPhoto)) 
 	rt.router.GET("/conversations/:conversationId", rt.withAuth(rt.handleGetConversationDetails))
 	// After dealing with messages and groups; should include also the replies
 	// Special routes

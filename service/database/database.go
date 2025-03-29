@@ -15,7 +15,7 @@ type AppDatabase interface {
 	GetOrCreateUser(name string) (string, error)
 	UpdateUsername(userID string, newName string) error
 	SearchUsers(query string) ([]User, int, error)
-	UpdateUserPhoto(userID string, photoID string) (string, error)
+	UpdateUserPhoto(userID string, fileData []byte, contentType string) (string, string, error)
 	GetUserConversations(userID string) ([]Conversation, int, error)
 	StartConversation(initiatorID string, recipientIDs []string, title string, isGroup bool) (string, error)
 	GetUserIDByName(name string) (string, error)
@@ -40,10 +40,13 @@ type AppDatabase interface {
 	LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, remainingMemberCount int, err error)
 	IsGroupMember(groupID, userID string) (bool, error) 
 	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, memberCount int, err error) 
-	SetGroupPhoto(groupID string, userID string, newPhotoURL string) (oldPhotoURL string, updatedPhotoURL string, err error) // not updated
+	SetGroupPhoto(groupID string, userID string, fileData []byte, contentType string) (oldPhotoID string, newPhotoID string, err error) 
 	UserExists(userID string) (bool, error)
 	UpdateMessageStatus(messageID, userID, newStatus string) (*MessageStatusUpdate, error)
 	GetMessageByID(messageID string) (*Message, error)
+	IsValidUserID(userID string) bool
+	IsValidImageType(contentType string) bool 
+	GeneratePhotoID(userID string) string 
 	Ping() error
 }
 
@@ -168,6 +171,7 @@ var (
 	ErrInvalidNameLength = errors.New("invalid name length")
 	ErrInvalidNameFormat = errors.New("invalid name format")
 	ErrNameAlreadyTaken  = errors.New("name already taken")
+	ErrMediaNotFound = errors.New("media not found")
 )
 
 type appdbimpl struct {

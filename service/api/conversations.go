@@ -372,7 +372,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 		
 		messageType = "photo"
 		// Store the URL to the media in the content field
-		content = fmt.Sprintf("/api/media/%s", mediaID)
+		content = fmt.Sprintf("/media/%s", mediaID)
 	} else {
 		sendJSONError(w, "Unsupported content type", http.StatusUnsupportedMediaType)
 		return

@@ -83,7 +83,7 @@ func (db *appdbimpl) StoreMediaFile(fileData []byte, mimeType string) (string, e
 		return mediaID, nil
 	}
 	
-	// If we couldn't generate a unique ID after 10 attempts, return an error
+	// If impossible to generate
 	return "", fmt.Errorf("failed to generate a unique media ID after multiple attempts")
 }
 
