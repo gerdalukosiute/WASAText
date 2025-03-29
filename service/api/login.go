@@ -2,8 +2,8 @@ package api
 
 import (
 	"encoding/json"
-	"regexp"
 	"net/http"
+	"regexp"
 
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/julienschmidt/httprouter"
@@ -11,12 +11,12 @@ import (
 
 // loginRequest describes the data received in a login request.
 type loginRequest struct {
-	Name string `json:"name"` 
+	Name string `json:"name"`
 }
 
 // loginResponse describes the data sent as response to a login request.
 type loginResponse struct {
-	Identifier string `json:"identifier"` 
+	Identifier string `json:"identifier"`
 }
 
 // handleLogin is the HTTP endpoint that handles user login
@@ -47,7 +47,7 @@ func (rt *_router) handleLogin(w http.ResponseWriter, r *http.Request, ps httpro
 	userID, err := rt.db.GetOrCreateUser(req.Name)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to get or create user")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 

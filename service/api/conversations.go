@@ -17,50 +17,44 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// GroupResponse represents the API response for a group
-type GroupResponse struct {
-	ID   string `json:"groupId"`
-	Name string `json:"groupName"`
-}
-
-// ConversationDetailsResponse represents the API response for conversation details
+// Updated response structures to match API documentation
 type ConversationDetailsResponse struct {
-	ID           string                `json:"id"`
-	Title        string                `json:"title"`
-	IsGroup      bool                  `json:"isGroup"`
-	UpdatedAt    time.Time             `json:"updatedAt"`
-	Participants []ParticipantResponse `json:"participants"`
-	Messages     []MessageResponse     `json:"messages"`
+    ConversationID string                `json:"conversationId"`
+    Title          string                `json:"title"`
+    IsGroup        bool                  `json:"isGroup"`
+    GroupPhotoID   string                `json:"groupPhotoId,omitempty"`
+    CreatedAt      string                `json:"createdAt"`
+    Participants   []ParticipantResponse `json:"participants"`
+    Messages       []MessageResponse     `json:"messages"`
 }
 
-// ParticipantResponse represents a participant in the API response
 type ParticipantResponse struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+    Username       string `json:"username"`
+    UserID         string `json:"userId"`
+    ProfilePhotoID string `json:"profilePhotoId,omitempty"`
 }
 
-// MessageResponse represents a message in the API response
 type MessageResponse struct {
-	ID             string            `json:"id"`
-	SenderID       string            `json:"senderId"`
-	Sender         string            `json:"sender"`
-	Type           string            `json:"type"`
-	Content        string            `json:"content"`
-	Icon           string            `json:"icon"`
-	Timestamp      time.Time         `json:"timestamp"`
-	Status         string            `json:"status"`
-	Comments       []CommentResponse `json:"comments"`
-	ParentMessageID *string          `json:"parentMessageId,omitempty"` 
+    MessageID       string             `json:"messageId"`
+    ParentMessageID string             `json:"parentMessageId,omitempty"`
+    Sender          SenderResponse     `json:"sender"`
+    Type            string             `json:"type"`
+    Content         string             `json:"content"`
+    Timestamp       string             `json:"timestamp"`
+    Status          string             `json:"status"`
+    Reactions       []ReactionResponse `json:"reactions,omitempty"`
 }
 
-// CommentResponse represents a comment in the API response
-type CommentResponse struct {
-	ID        string    `json:"id"`
-	MessageID string    `json:"messageId"`
-	UserID    string    `json:"userId"`
-	Username  string    `json:"username"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
+type SenderResponse struct {
+    Username string `json:"username"`
+    UserID   string `json:"userId"`
+}
+
+type ReactionResponse struct {
+    Username    string `json:"username"`
+    Interaction string `json:"interaction"`
+    Content     string `json:"content"`
+    Timestamp   string `json:"timestamp"`
 }
 
 // ConversationResponse represents the API response for a conversation summary (Updated)
@@ -77,7 +71,7 @@ type ConversationResponse struct {
 	} `json:"lastMessage"`
 }
 
-// Updated 
+// Handles retrieving the users conversations
 func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	ctx.Logger.WithField("userID", userID).Info("Handling get conversations request")
 
@@ -85,7 +79,7 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 	userExists, err := rt.db.UserExists(userID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to check user existence")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 	if !userExists {
@@ -96,7 +90,7 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 	conversations, total, err := rt.db.GetUserConversations(userID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to get user conversations")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 
@@ -115,9 +109,9 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 		}
 
 		conversationResponses[i] = ConversationResponse{
-			ConversationID: conv.ID,                        // Use the ID field from Conversation
+			ConversationID: conv.ID,                       
 			Title:          conv.Title,
-			CreatedAt:      conv.CreatedAt.Format(time.RFC3339), // Convert time.Time to string
+			CreatedAt:      conv.CreatedAt.Format(time.RFC3339), 
 			ProfilePhotoID: conv.ProfilePhoto,
 			IsGroup:        conv.IsGroup,
 			LastMessage:    lastMessage,
@@ -141,11 +135,12 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		ctx.Logger.WithError(err).Error("Failed to encode JSON response")
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 }
 
-// Updated
+// Handles starting a 1 on 1 or group conversation
 func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	ctx.Logger.WithField("userID", userID).Info("Handling start conversation request")
 
@@ -174,7 +169,6 @@ func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	
 	// Get recipient IDs from usernames
 	recipientIDs := make([]string, 0, len(req.Recipients))
 	for _, recipientName := range req.Recipients {
@@ -200,7 +194,7 @@ func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Reques
 		if strings.Contains(err.Error(), "participant with ID") {
 			sendJSONError(w, fmt.Sprintf("Invalid participant: %v", err), http.StatusBadRequest)
 		} else {
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+			sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		}
 		return
 	}
@@ -209,7 +203,7 @@ func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Reques
 	conversations, total, err := rt.db.GetUserConversations(userID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to get user conversations")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 
@@ -250,10 +244,12 @@ func (rt *_router) handleStartConversation(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		ctx.Logger.WithError(err).Error("Failed to encode response")
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
+		return
 	}
 }
 
-// Updated to handle replies according to the API documentation
+// Handles sending messages
 func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	conversationID := ps.ByName("conversationId")
 
@@ -265,7 +261,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 			return
 		}
 		ctx.Logger.WithError(err).Error("Failed to check user participation in conversation")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 	if !isParticipant {
@@ -350,7 +346,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 		photo, err = io.ReadAll(file)
 		if err != nil {
 			ctx.Logger.WithError(err).Error("Failed to read photo data")
-			sendJSONError(w, "Failed to read photo data", http.StatusInternalServerError)
+			sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 			return
 		}
 
@@ -366,7 +362,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 		mediaID, err := rt.db.StoreMediaFile(photo, contentTypeValue)
 		if err != nil {
 			ctx.Logger.WithError(err).Error("Failed to store media file")
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+			sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 			return
 		}
 		
@@ -384,7 +380,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 		exists, err := rt.db.ValidateParentMessage(*parentMessageID, conversationID)
 		if err != nil {
 			ctx.Logger.WithError(err).Error("Failed to validate parent message")
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+			sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 			return
 		}
 		if !exists {
@@ -397,7 +393,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 	messageID, err := rt.db.AddMessage(conversationID, userID, messageType, content, contentTypeValue, parentMessageID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to add message")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 
@@ -405,7 +401,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 	senderName, err := rt.db.GetUserNameByID(userID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to get sender's name")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 
@@ -445,6 +441,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		ctx.Logger.WithError(err).Error("Failed to encode response")
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 }
@@ -472,6 +469,7 @@ type forwardMessageResponse struct {
 	ForwardedTimestamp string    `json:"forwardedTimestamp"`
 }
 
+// Handles message forwarding
 func (rt *_router) handleForwardMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	messageID := ps.ByName("messageId")
 	
@@ -511,7 +509,7 @@ func (rt *_router) handleForwardMessage(w http.ResponseWriter, r *http.Request, 
 			errorMessage = "No permission to forward"
 		} else {
 			statusCode = http.StatusInternalServerError
-			errorMessage = "Internal server error"
+			errorMessage = ErrInternalServerMsg
 		}
 		
 		ctx.Logger.WithError(err).Error(errorMessage)
@@ -523,7 +521,7 @@ func (rt *_router) handleForwardMessage(w http.ResponseWriter, r *http.Request, 
 	forwarderName, err := rt.db.GetUserNameByID(userID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to get forwarder's name")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 
@@ -556,11 +554,12 @@ func (rt *_router) handleForwardMessage(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		ctx.Logger.WithError(err).Error("Failed to encode response")
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 }
 
-// Updated handler for adding emoji reactions to messages
+// Handler for adding emoji reactions to messages
 func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	messageID := ps.ByName("messageId")
 
@@ -603,7 +602,7 @@ func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps h
 			sendJSONError(w, "Message not found", http.StatusNotFound)
 			return
 		} else {
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+			sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 			return
 		}
 	}
@@ -612,7 +611,7 @@ func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps h
 	username, err := rt.db.GetUserNameByID(userID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to get username")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 
@@ -647,11 +646,11 @@ func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps h
 		Timestamp: comment.Timestamp.Format(time.RFC3339),
 	}
 
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		ctx.Logger.WithError(err).Error("Failed to encode response")
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 }
@@ -689,18 +688,16 @@ func isValidEmoji(s string) bool {
 	return hasEmojiChar
 }
 
-// handleDeleteComment handles the DELETE request to remove an emoji reaction from a message
+// Handles the request to remove an emoji reaction from a message
 func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	messageID := ps.ByName("messageId")
 	commentID := ps.ByName("commentId")
-
 
 	ctx.Logger.WithFields(logrus.Fields{
 		"messageID": messageID,
 		"commentID": commentID,
 		"userID":    userID,
 	}).Info("Attempting to delete emoji reaction")
-
 
 	err := rt.db.DeleteComment(messageID, commentID, userID)
 	if err != nil {
@@ -718,16 +715,16 @@ func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, p
 			errorMessage = "No permission to remove"
 		} else {
 			statusCode = http.StatusInternalServerError
-			errorMessage = "Internal server error"
+			errorMessage = ErrInternalServerMsg
 		}
 		
 		w.WriteHeader(statusCode)
 		if encodeErr := json.NewEncoder(w).Encode(map[string]string{"error": errorMessage}); encodeErr != nil {
 			ctx.Logger.WithError(encodeErr).Error("Failed to encode error response")
+			http.Error(w, "Error encoding response", http.StatusInternalServerError)
 		}
 		return
 	}
-
 
 	// Get the username of the user who deleted the comment
 	username, err := rt.db.GetUserNameByID(userID)
@@ -735,16 +732,15 @@ func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, p
 		ctx.Logger.WithError(err).Error("Failed to get username")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		if encodeErr := json.NewEncoder(w).Encode(map[string]string{"error": "Internal server error"}); encodeErr != nil {
+		if encodeErr := json.NewEncoder(w).Encode(map[string]string{"error": ErrInternalServerMsg}); encodeErr != nil {
 			ctx.Logger.WithError(encodeErr).Error("Failed to encode error response")
+			http.Error(w, "Error encoding response", http.StatusInternalServerError)
 		}
 		return
 	}
 
-
 	// Get current time for removedAt field
-	removedAt := time.Now().UTC().Format(time.RFC3339)
-
+	removedAt := time.Now().Format(time.RFC3339)
 
 	ctx.Logger.WithFields(logrus.Fields{
 		"messageID": messageID,
@@ -753,7 +749,6 @@ func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, p
 		"username":  username,
 		"removedAt": removedAt,
 	}).Info("Emoji reaction deleted successfully")
-
 
 	// Create response according to the API documentation
 	response := struct {
@@ -777,24 +772,22 @@ func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, p
 		RemovedAt: removedAt,
 	}
 
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if encodeErr := json.NewEncoder(w).Encode(response); encodeErr != nil {
 		ctx.Logger.WithError(encodeErr).Error("Failed to encode success response")
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
 
-// handleUpdateMessageStatus handles the PUT request to update a message status
+// Handles status updates
 func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	messageID := ps.ByName("messageId")
-
 
 	ctx.Logger.WithFields(logrus.Fields{
 		"messageID": messageID,
 		"userID":    userID,
 	}).Info("Handling update message status request")
-
 
 	var req struct {
 		Status string `json:"status"`
@@ -804,7 +797,6 @@ func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Requ
 		sendJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-
 
 	// Validate the status
 	validStatuses := []string{"delivered", "read"}
@@ -820,7 +812,6 @@ func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Requ
 		sendJSONError(w, "Invalid status", http.StatusBadRequest)
 		return
 	}
-
 
 	// Update the message status
 	statusUpdate, err := rt.db.UpdateMessageStatus(messageID, userID, req.Status)
@@ -838,13 +829,12 @@ func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Requ
 			errorMessage = "Not permitted"
 		} else {
 			statusCode = http.StatusInternalServerError
-			errorMessage = "Internal server error"
+			errorMessage = ErrInternalServerMsg
 		}
 		
 		sendJSONError(w, errorMessage, statusCode)
 		return
 	}
-
 
 	// Create the response according to the API documentation
 	response := struct {
@@ -870,132 +860,137 @@ func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Requ
 		ConversationID: statusUpdate.ConversationID,
 	}
 
-
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		ctx.Logger.WithError(err).Error("Failed to encode response")
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
+		return
 	}
 }
 
-// Update the handleDeleteMessage function to match the API documentation
+// Handles message deletion
 func (rt *_router) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
-   ctx.Logger.WithFields(logrus.Fields{
-       "userID":    userID,
-       "messageID": ps.ByName("messageId"),
-   }).Info("Handling delete message request")
+	ctx.Logger.WithFields(logrus.Fields{
+		"userID":    userID,
+		"messageID": ps.ByName("messageId"),
+	}).Info("Handling delete message request")
 
+	messageID := ps.ByName("messageId")
 
-   messageID := ps.ByName("messageId")
+	// Delete the message
+	deletedMessage, conversationID, err := rt.db.DeleteMessage(messageID, userID)
+	if err != nil {
+		var statusCode int
+		var errorMessage string
+		
+		if errors.Is(err, database.ErrMessageNotFound) {
+			statusCode = http.StatusNotFound
+			errorMessage = "Message not found"
+		} else if errors.Is(err, database.ErrUnauthorized) {
+			statusCode = http.StatusForbidden
+			errorMessage = "No permission to delete"
+		} else {
+			statusCode = http.StatusInternalServerError
+			errorMessage = ErrInternalServerMsg
+			ctx.Logger.WithError(err).Error("Failed to delete message")
+		}
+		
+		sendJSONError(w, errorMessage, statusCode)
+		return
+	}
 
+	// Get the username for the response
+	username, err := rt.db.GetUserNameByID(userID)
+	if err != nil {
+		ctx.Logger.WithError(err).Error("Failed to get username")
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
+		return
+	}
 
-   // Delete the message
-   deletedMessage, conversationID, err := rt.db.DeleteMessage(messageID, userID)
-   if err != nil {
-       var statusCode int
-       var errorMessage string
-      
-       if errors.Is(err, database.ErrMessageNotFound) {
-           statusCode = http.StatusNotFound
-           errorMessage = "Message not found"
-       } else if errors.Is(err, database.ErrUnauthorized) {
-           statusCode = http.StatusForbidden
-           errorMessage = "No permission to delete"
-       } else {
-           statusCode = http.StatusInternalServerError
-           errorMessage = "Internal server error"
-           ctx.Logger.WithError(err).Error("Failed to delete message")
-       }
-      
-       sendJSONError(w, errorMessage, statusCode)
-       return
-   }
+	// Create the response according to the API documentation
+	response := struct {
+		MessageID      string    `json:"messageId"`
+		User           struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		} `json:"user"`
+		DeletedAt      string    `json:"deletedAt"`
+		ConversationID string    `json:"conversationId"`
+	}{
+		MessageID: deletedMessage.ID,
+		User: struct {
+			Username string `json:"username"`
+			UserID   string `json:"userId"`
+		}{
+			Username: username,
+			UserID:   userID,
+		},
+		DeletedAt:      time.Now().Format(time.RFC3339),
+		ConversationID: conversationID,
+	}
 
-
-   // Get the username for the response
-   username, err := rt.db.GetUserNameByID(userID)
-   if err != nil {
-       ctx.Logger.WithError(err).Error("Failed to get username")
-       sendJSONError(w, "Internal server error", http.StatusInternalServerError)
-       return
-   }
-
-
-   // Create the response according to the API documentation
-   response := struct {
-       MessageID      string    `json:"messageId"`
-       User           struct {
-           Username string `json:"username"`
-           UserID   string `json:"userId"`
-       } `json:"user"`
-       DeletedAt      string    `json:"deletedAt"`
-       ConversationID string    `json:"conversationId"`
-   }{
-       MessageID: deletedMessage.ID,
-       User: struct {
-           Username string `json:"username"`
-           UserID   string `json:"userId"`
-       }{
-           Username: username,
-           UserID:   userID,
-       },
-       DeletedAt:      time.Now().Format(time.RFC3339),
-       ConversationID: conversationID,
-   }
-
-
-   w.Header().Set("Content-Type", "application/json")
-   w.WriteHeader(http.StatusOK)
-   if err := json.NewEncoder(w).Encode(response); err != nil {
-       ctx.Logger.WithError(err).Error("Failed to encode response")
-   }
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to encode response")
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
+		return
+	}
 }
 
-// Updated above
-
+// Convert database messages to response format
 func convertMessages(dbMessages []database.Message) []MessageResponse {
 	messages := make([]MessageResponse, len(dbMessages))
 	for i, m := range dbMessages {
 		messages[i] = MessageResponse{
-			ID:        m.ID,
-			SenderID:  m.SenderID,
-			Sender:    m.Sender,
+			MessageID: m.ID,
+			Sender: SenderResponse{
+				Username: m.Sender,
+				UserID:   m.SenderID,
+			},
 			Type:      m.Type,
 			Content:   m.Content,
-			Icon:      m.Icon,
-			Timestamp: m.Timestamp,
+			Timestamp: m.Timestamp.Format(time.RFC3339),
 			Status:    m.Status,
-			Comments:  convertComments(m.Comments),
+			Reactions: convertReactions(m.Comments),
+		}
+		
+		// Add parent message ID if present
+		if m.ParentMessageID != nil {
+			messages[i].ParentMessageID = *m.ParentMessageID
 		}
 	}
 	return messages
 }
 
-func convertComments(dbComments []database.Comment) []CommentResponse {
-	comments := make([]CommentResponse, len(dbComments))
+// Convert database comments to reaction responses
+func convertReactions(dbComments []database.Comment) []ReactionResponse {
+	reactions := make([]ReactionResponse, len(dbComments))
 	for i, c := range dbComments {
-		comments[i] = CommentResponse{
-			ID:        c.ID,
-			MessageID: c.MessageID,
-			UserID:    c.UserID,
-			Username:  c.Username,
-			Content:   c.Content,
-			Timestamp: c.Timestamp,
+		reactions[i] = ReactionResponse{
+			Username:    c.Username,
+			Interaction: "reaction",
+			Content:     c.Content,
+			Timestamp:   c.Timestamp.Format(time.RFC3339),
 		}
 	}
-	return comments
+	return reactions
 }
 
+// Convert database participants to response format
 func convertParticipants(dbParticipants []database.Participant) []ParticipantResponse {
 	participants := make([]ParticipantResponse, len(dbParticipants))
 	for i, p := range dbParticipants {
 		participants[i] = ParticipantResponse{
-			ID:   p.ID,
-			Name: p.Name,
+			Username:       p.Name,
+			UserID:         p.ID,
+			ProfilePhotoID: p.PhotoID,
 		}
 	}
 	return participants
 }
 
+// Handler for getting conversation details
 func (rt *_router) handleGetConversationDetails(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	ctx.Logger.WithField("userID", userID).Info("Handling get conversation details request")
 
@@ -1008,35 +1003,36 @@ func (rt *_router) handleGetConversationDetails(w http.ResponseWriter, r *http.R
 
 	conversation, err := rt.db.GetConversationDetails(conversationID, userID)
 	if err != nil {
-		if err == database.ErrConversationNotFound {
-			ctx.Logger.WithError(err).Error("Conversation not found")
+		ctx.Logger.WithError(err).Error("Failed to get conversation details")
+		
+		if errors.Is(err, database.ErrConversationNotFound) {
 			sendJSONError(w, "Conversation not found", http.StatusNotFound)
-		} else {
-			ctx.Logger.WithError(err).Error("Failed to get conversation details")
-			sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+			return
 		}
+		
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 
+	// Create the response according to the API documentation
 	response := ConversationDetailsResponse{
-		ID:           conversation.ID,
-		Title:        conversation.Title,
-		IsGroup:      conversation.IsGroup,
-		UpdatedAt:    conversation.UpdatedAt,
-		Participants: convertParticipants(conversation.Participants),
-		Messages:     convertMessages(conversation.Messages),
+		ConversationID: conversation.ID,
+		Title:          conversation.Title,
+		IsGroup:        conversation.IsGroup,
+		CreatedAt:      conversation.CreatedAt.Format(time.RFC3339),
+		Participants:   convertParticipants(conversation.Participants),
+		Messages:       convertMessages(conversation.Messages),
+	}
+	
+	// Add group photo ID if present and it's a group
+	if conversation.IsGroup && conversation.ProfilePhoto != "" {
+		response.GroupPhotoID = conversation.ProfilePhoto
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-// Helper function to check if a slice contains a string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ctx.Logger.WithError(err).Error("Failed to encode response")
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
+		return
 	}
-	return false
 }

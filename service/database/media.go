@@ -1,13 +1,13 @@
 package database
 
 import (
-    "fmt"
-    "time"
-    "errors"
-    "database/sql"
+	"database/sql"
+	"errors"
+	"fmt"
 	"regexp"
-    
-    "github.com/sirupsen/logrus"
+	"time"
+	
+	"github.com/sirupsen/logrus"
 )
 
 // StoreMediaFile stores a media file in the database and returns its ID
@@ -57,7 +57,7 @@ func (db *appdbimpl) StoreMediaFile(fileData []byte, mimeType string) (string, e
 		defer func() {
 			if tx != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
-					logrus.Printf("Error rolling back transaction: %v", rollbackErr)
+					logrus.WithError(rollbackErr).Error("Error rolling back transaction")
 				}
 			}
 		}()

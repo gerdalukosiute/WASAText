@@ -28,9 +28,9 @@ func (rt *_router) handleSearchUsers(w http.ResponseWriter, r *http.Request, ps 
 			validQuery = false
 		} else {
 			for _, char := range trimmedQuery {
-				if !((char >= 'a' && char <= 'z') || 
-					(char >= 'A' && char <= 'Z') || 
-					(char >= '0' && char <= '9') || 
+				if !((char >= 'a' && char <= 'z') ||
+					(char >= 'A' && char <= 'Z') ||
+					(char >= '0' && char <= '9') ||
 					char == '_' || char == '-') {
 					validQuery = false
 					break
@@ -56,7 +56,7 @@ func (rt *_router) handleSearchUsers(w http.ResponseWriter, r *http.Request, ps 
 			"authenticatedUserID": userID,
 			"error":               err,
 		}).Error("Failed to search users")
-		sendJSONError(w, "Internal server error", http.StatusInternalServerError)
+		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
 

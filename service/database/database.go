@@ -28,8 +28,8 @@ type AppDatabase interface {
 	GenerateMessageID() (string, error) 
     StoreMediaFile(fileData []byte, mimeType string) (string, error)
     GetMediaFile(mediaID string) ([]byte, string, error) 
-	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error) // not updated
-	GetComments(messageID string) ([]Comment, error) // not updated, may be useless
+	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
+	GetComments(messageID string) ([]Comment, error) 
 	ForwardMessage(originalMessageID, targetConversationID, userID string) (*ForwardedMessage, error)
 	IsUserAuthorized(userID string, messageID string) (bool, error) 
 	ConversationExists(conversationID string) (bool, error)
@@ -65,18 +65,21 @@ type Group struct {
 
 // ConversationDetails represents the full details of a conversation
 type ConversationDetails struct {
-	ID           string
-	Title        string
-	IsGroup      bool
-	UpdatedAt    time.Time
-	Participants []Participant
-	Messages     []Message
+   ID           string
+   Title        string
+   IsGroup      bool
+   CreatedAt    time.Time        
+   ProfilePhoto string           
+   Participants []Participant
+   Messages     []Message
 }
+
 
 // Participant represents a user participating in a conversation
 type Participant struct {
-	ID   string
-	Name string
+    ID      string
+    Name    string
+    PhotoID string
 }
 
 // Message struct represents a message
@@ -172,6 +175,7 @@ var (
 	ErrInvalidNameFormat = errors.New("invalid name format")
 	ErrNameAlreadyTaken  = errors.New("name already taken")
 	ErrMediaNotFound = errors.New("media not found")
+	ErrInternalServer = errors.New("internal server error")
 )
 
 type appdbimpl struct {

@@ -32,7 +32,6 @@ func sendJSONError(w http.ResponseWriter, message string, statusCode int) {
 	w.WriteHeader(statusCode)
 	errResp := map[string]string{"error": message}
 	if err := json.NewEncoder(w).Encode(errResp); err != nil {
-		// If we can't encode the error response, log it and write a plain text error
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, ErrInternalServerMsg, http.StatusInternalServerError)
 	}
 }
