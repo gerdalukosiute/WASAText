@@ -204,11 +204,13 @@ const closeSetGroupPhotoForm = () => {
   selectedGroupId.value = null;
 };
 
-const handleGroupPhotoUpdated = ({ groupId, newPhotoUrl }) => {
+const handleGroupPhotoUpdated = async ({ groupId, newPhotoId }) => {
+  console.log('group photo updated:', groupId, newPhotoId);
   const updatedConversation = conversations.value.find(c => c.id === groupId);
   if (updatedConversation) {
-    updatedConversation.profilePhoto = newPhotoUrl;
-    // Force a re-render of the conversation list
+    updatedConversation.groupPhotoId = newPhotoId;
+    conversations.value = [...conversations.value];
+    await fetchConversationDetails(updatedConversation);
     conversations.value = [...conversations.value];
   }
   closeSetGroupPhotoForm();
