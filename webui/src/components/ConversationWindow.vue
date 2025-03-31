@@ -4,7 +4,8 @@ import { format } from 'date-fns';
 import Comment from '@/components/Comment.vue';
 import ForwardDeleteForm from '@/components/ForwardDeleteForm.vue';
 import MessageStatusUpdater from '@/components/MessageStatusUpdater.vue';
-import api from '@/services/axios.js'
+import MediaImage from '@/components/MediaImage.vue';
+import api from '@/services/axios.js';
 
 const props = defineProps({
   conversationId: {
@@ -14,10 +15,15 @@ const props = defineProps({
   conversationTitle: {
     type: String,
     required: true
+  },
+  onRefresh: {
+    type: Function,
+    required: false,
+    default: () => {}
   }
 });
 
-const emit = defineEmits(['close']);
+const emit = defineEmits(['close', 'messageSent']);
 
 const messages = ref([]);
 
@@ -35,11 +41,12 @@ const loading = ref(true);
 const error = ref(null);
 const currentUserId = ref('');
 const showImageInput = ref(false);
-const imageUrl = ref('');
 const messageArea = ref(null);
 const showReactionBar = ref({});
 const showReactionDetails = ref({});
 const forwardDeleteForms = ref([]);
+const selectedFile = ref(null); // Added
+const previewUrl = ref(''); // Added
 
 const fetchConversationDetails = async () => {
   loading.value = true;
@@ -73,16 +80,27 @@ const fetchConversationDetails = async () => {
     groupPhotoId: response.data.groupPhotoId,
     createdAt: response.data.createdAt,
     participants: response.data.participants,
-    messages: response.data.messages.map(msg => ({
-      id: msg.messageId,
-      content: msg.content,
-      type: msg.type,
-      timestamp: msg.timestamp,
-      status: msg.status,
-      sender: msg.sender.userId,
-      senderName: msg.sender.username,
-      comments: msg.comments || []
-    }))
+    messages: response.data.messages.map(msg => {
+        // Process the message content for photo messages
+        let processedContent = msg.content;
+        if (msg.type === 'photo' && processedContent.startsWith('/media/')) {
+          // Extract just the mediaId part 
+          processedContent = processedContent.substring(7); // '/media/'.length === 7
+          console.log(`Processed photo content: ${msg.content} -> ${processedContent}`);
+        }
+        
+        return {
+          id: msg.messageId,
+          content: processedContent,
+          type: msg.type,
+          timestamp: msg.timestamp,
+          status: msg.status,
+          sender: msg.sender.userId,
+          senderName: msg.sender.username,
+          comments: msg.comments || []
+        };
+      })
+
     };
 
     // sorting (may be redundant, check)
@@ -146,7 +164,7 @@ const toggleReactionDetails = (messageId) => {
   };
 };
 
-const sendMessage = async (content, type = 'text') => {
+const sendTextMessage = async (content, type = 'text') => {
   try {
     const userId = localStorage.getItem('userId');
     if (!userId) {
@@ -174,11 +192,15 @@ const sendMessage = async (content, type = 'text') => {
 
     messages.value.push(newMessage);
     newMessage.value = '';
-    imageUrl.value = '';
-    showImageInput.value = false;
 
     await fetchConversationDetails();
-    
+
+    if (typeof props.onRefresh === 'function') {
+      console.log('Callin onRefresh..');
+      props.onRefresh();
+    }
+
+    emit('messageSent');
   } catch (err) {
     console.error('Error sending message:', err);
     error.value = 'Failed to send message. Please try again.';
@@ -187,15 +209,109 @@ const sendMessage = async (content, type = 'text') => {
 
 const handleSendMessage = () => {
   if (newMessage.value.trim()) {
-    sendMessage(newMessage.value, 'text');
+    sendTextMessage(newMessage.value, 'text');
     newMessage.value = ' ';
   }
 };
 
-const handleSendImage = () => {
-  if (imageUrl.value.trim()) {
-    sendMessage(imageUrl.value, 'photo');
+const handleSendImage = async () => {
+  if (!selectedFile.value) {
+    error.value = 'Please select an image to send';
+    return;
   }
+  
+  try {
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
+    
+    // Create FormData for file upload
+    const formData = new FormData();
+    formData.append('type', 'photo');
+    formData.append('photo', selectedFile.value);
+    
+    const response = await api.post(
+      `/conversations/${props.conversationId}/messages`, 
+      formData, 
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'X-User-ID': userId
+        }
+      }
+    );
+    
+    console.log('image message response', response.data);
+
+    // Extract mediaId
+    let photoContent = response.data.content;
+    if (photoContent && photoContent.startsWith('/media/')) {
+      photoContent = photoContent.substring(7); // '/media/'.length === 7
+    }
+
+    const newMessage = {
+      ...response.data,
+      id: response.data.messageId,
+      content: photoContent,
+      senderName: response.data.sender.username,
+      sender: response.data.sender.userId,
+      status: 'sent',
+      comments: []
+    };
+    
+    messages.value.push(newMessage);
+    resetImageUpload();
+    
+    await fetchConversationDetails();
+
+    if (typeof props.onRefresh === 'function') {
+      console.log('Callin onRefresh..');
+      props.onRefresh();
+    }
+
+    emit('messageSent');
+  } catch (err) {
+    console.error('Error sending image:', err);
+    error.value = 'Failed to send image. Please try again.';
+  }
+};
+
+const handleFileChange = (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  // Clean up previous preview if exists
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value);
+  }
+  
+  selectedFile.value = file;
+  
+  previewUrl.value = URL.createObjectURL(file);
+};
+
+const resetImageUpload = () => {
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value);
+  }
+  selectedFile.value = null;
+  previewUrl.value = '';
+  showImageInput.value = false;
+};
+
+const handleImageError = (event) => {
+  console.error('Error loading image:', event);
+  event.target.src = 'https://via.placeholder.com/150?text=Image+Not+Found';
+};
+
+const getMediaUrl = (mediaPath) => {
+  console.log('Getting media URL for:', mediaPath);
+  if (!mediaPath) {
+    console.error('Media path is null or undefined');
+    return 'https://via.placeholder.com/150?text=No+Image';
+  }
+  return mediaPath;
 };
 
 const formatDate = (dateString) => {
@@ -285,7 +401,7 @@ watch(messages, () => {
               </template>
               <template v-if="message.type === 'photo'">
                 <div class="image-container">
-                  <img :src="message.content" alt="Shared image" class="message-image" @error="handleImageError">
+                  <MediaImage :mediaId="message.content" alt="Shared image" className="message-image" />
                 </div>
               </template>
             </div>
@@ -322,16 +438,22 @@ watch(messages, () => {
       </div>
     </div>
     <div class="input-area">
+      <!-- Updated image input area -->
       <div v-if="showImageInput" class="image-input">
-        <input
-          v-model="imageUrl"
-          type="text"
-          placeholder="Enter image URL"
-          class="image-url-input"
-        />
+        <div v-if="previewUrl" class="image-preview">
+          <img :src="previewUrl" alt="Preview" class="preview-image" />
+        </div>
+        <div class="file-input-container">
+          <label for="message-image-upload" class="file-input-label">
+            Select Image
+          </label>
+          <input id="message-image-upload" type="file" accept="image/*" @change="handleFileChange" class="file-input" /> 
+        </div>
         <div class="image-input-buttons">
-          <button @click="handleSendImage" class="send-image-button">Send Image</button>
-          <button @click="showImageInput = false" class="cancel-button">Cancel</button>
+          <button @click="handleSendImage" class="send-image-button" :disabled="!selectedFile">
+            Send Image
+          </button>
+          <button @click="resetImageUpload" class="cancel-button">Cancel</button>
         </div>
       </div>
       <form @submit.prevent="handleSendMessage" class="message-form">
@@ -405,7 +527,6 @@ watch(messages, () => {
   max-width: 70%;
   position: relative;
   min-width: 10%;
-  
 }
 
 .message-container.sent {
@@ -495,13 +616,40 @@ watch(messages, () => {
   margin-bottom: 12px;
 }
 
-.image-url-input {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #e2e8f0;
+
+.file-input-container {
+  margin-bottom: 10px;
+}
+
+.file-input-label {
+  display: inline-block;
+  padding: 8px 16px;
+  background-color: #f0f0f0;
   border-radius: 20px;
-  font-size: 0.95rem;
-  margin-bottom: 8px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  text-align: center;
+  width: 100%;
+}
+
+.file-input-label:hover {
+  background-color: #e0e0e0;
+}
+
+.file-input {
+  display: none;
+}
+
+.image-preview {
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 8px;
+  object-fit: cover;
 }
 
 .image-input-buttons {
@@ -526,6 +674,11 @@ watch(messages, () => {
 
 .send-image-button:hover {
   background-color: #3183e0;
+}
+
+.send-image-button:disabled {
+  background-color: #a0c3f0;
+  cursor: not-allowed;
 }
 
 .cancel-button {

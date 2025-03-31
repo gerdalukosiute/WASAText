@@ -7,7 +7,7 @@ import AddUserToGroupForm from '@/components/AddUserToGroupForm.vue';
 import SetGroupNameForm from '@/components/SetGroupNameForm.vue'
 import LeaveGroupModal from '@/components/LeaveGroupModal.vue';
 import MediaImage from '@/components/MediaImage.vue';
-import api from '@/services/axios.js'
+import api from '@/services/axios.js';
 
 const conversations = ref([]);
 const loading = ref(true);
@@ -23,6 +23,8 @@ const showLeaveGroupConfirmation = ref(false);
 const photoUrl = ref('');
 
 const fetchConversations = async () => {
+  console.log('fetching conversations');
+
   loading.value = true;
   error.value = null;
   try {
@@ -312,6 +314,13 @@ const leaveGroup = async () => {
   }
 };
 
+const handleMessageSent = async () => {
+  console.log('MessageSent event received, refreshing...');
+  await fetchConversations();
+
+  conversations.value = [...conversations.value];
+};
+
 onMounted(() => {
   fetchConversations();
 });
@@ -320,7 +329,7 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
 </script>
 
 <template>
-  <div class="conversations-container">
+  <div class="conversations-container" :key="componentKey">
     <h2 class="conversations-title">Conversations</h2>
     <div class="conversation-list-wrapper">
       <div v-if="loading" class="loading">
@@ -379,7 +388,9 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
         <ConversationWindow 
           :conversation-id="selectedConversation.id"
           :conversation-title="getConversationTitle(selectedConversation)"
+          :onRefresh="fetchConversations"
           @close="closeConversation"
+          @messageSent="handleMessageSent"
         />
       </div>
     </div>
