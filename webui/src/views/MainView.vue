@@ -1,23 +1,31 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import ConversationList from '@/components/ConversationList.vue';
 import SearchUsersForm from '@/components/SearchUsersForm.vue';
 import CreateGroupForm from '@/components/CreateGroupForm.vue';
 import SetProfilePhotoForm from '@/components/SetProfilePhotoForm.vue';
+import MediaImage from '@/components/MediaImage.vue';
 import UpdateUsernameForm from '@/components/UpdateUsernameForm.vue';
+import { cleanupAllMedia } from '@/services/media-service.js';
 
 const username = ref('');
-const photoUrl = ref('');
 const showDropdown = ref(false);
 const listKey = ref(0);
 const conversations = ref([]);
+const userPhotoId = ref('');
 
 const conversationListRef = ref(null);
 
 const fetchUserData = async (userId) => {
   try {
     username.value = localStorage.getItem('username') || '';
-    photoUrl.value = localStorage.getItem(`userPhotoUrl_${userId}`) || 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/pic.jpg-RvO6lH0z7IjCio9xsEjOG5WZnwSqYV.jpeg';
+    // Get the photo ID from localStorage
+    const photoId = localStorage.getItem(`userPhotoId_${userId}`);
+    if (photoId) {
+      userPhotoId.value = photoId; 
+    } else {
+      userPhotoId.value = '';
+    }
   } catch (error) {
     console.error('Error fetching user data:', error);
   }
@@ -36,8 +44,29 @@ const updateUsername = (newUsername) => {
   listKey.value += 1;
 };
 
-const updatePhotoUrl = (newPhotoUrl) => {
-  photoUrl.value = newPhotoUrl;
+const updatePhotoUrl = (newPhotoId) => {
+ if (newPhotoId) {
+   if (typeof newPhotoId === 'string' && (newPhotoId.startsWith('blob:') || newPhotoId.startsWith('/'))) {
+     const userId = localStorage.getItem('userId');
+     if (userId) {
+       if (newPhotoId.startsWith('/media/')) {
+         const idMatch = newPhotoId.match(/\/media\/([^?]+)/);
+         if (idMatch && idMatch[1]) {
+           userPhotoId.value = idMatch[1];
+           localStorage.setItem(`userPhotoId_${userId}`, idMatch[1]);
+         }
+       }
+     }
+   } else {
+     userPhotoId.value = newPhotoId;
+     const userId = localStorage.getItem('userId');
+     if (userId) {
+       localStorage.setItem(`userPhotoId_${userId}`, newPhotoId);
+     }
+   }
+  
+   listKey.value += 1;
+ }
 };
 
 const handleImageError = () => {
@@ -50,6 +79,10 @@ const handleConversationCreated = async (newConversation) => {
 
 const fetchConversations = async () => {
   listKey.value += 1;
+  // If we have a reference to the conversation list component, call its fetchConversations method
+  if (conversationListRef.value && typeof conversationListRef.value.fetchConversations === 'function') {
+    await conversationListRef.value.fetchConversations();
+  }
 };
 
 onMounted(async () => {
@@ -58,6 +91,10 @@ onMounted(async () => {
     await fetchUserData(userId);
   }
 });
+
+onUnmounted(() => {
+  cleanupAllMedia();
+});
 </script>
 
 <template>
@@ -65,7 +102,8 @@ onMounted(async () => {
     <div class="fixed-header">
       <div class="profile-section">
         <div class="profile-photo-container">
-          <img :src="photoUrl" alt="Profile Photo" class="profile-photo" @error="handleImageError" />
+          <MediaImage v-if="userPhotoId" :mediaId="userPhotoId" alt="Profile Photo" className="profile-photo" />
+          <img v-else src="https://static.vecteezy.com/system/resources/previews/009/292/244/non_2x/default-avatar-icon-of-social-media-user-vector.jpg" alt="Profile Photo" class="profile-photo" />
         </div>
       </div>
       <h1 class="welcome-header">Welcome, {{ username }}!</h1>
@@ -126,6 +164,10 @@ onMounted(async () => {
   height: 60px;
   border-radius: 50%;
   overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   border: 2px solid white;
 }
@@ -134,6 +176,7 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
 }
 
 .welcome-header {
@@ -198,7 +241,6 @@ onMounted(async () => {
   padding: 20px 40px;
 }
 
-/* Ensure modal is always on top */
 :deep(.modal) {
   z-index: 1000;
 }
@@ -206,5 +248,11 @@ onMounted(async () => {
 :deep(.modal-content) {
   z-index: 1001;
 }
-</style>
 
+img {
+ object-fit: cover;
+ width: 100%;
+ height: 100%;
+ object-position: center;
+}
+</style>

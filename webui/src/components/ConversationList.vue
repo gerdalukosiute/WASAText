@@ -6,6 +6,7 @@ import SetGroupPhotoForm from '@/components/SetGroupPhotoForm.vue';
 import AddUserToGroupForm from '@/components/AddUserToGroupForm.vue';
 import SetGroupNameForm from '@/components/SetGroupNameForm.vue'
 import LeaveGroupModal from '@/components/LeaveGroupModal.vue';
+import MediaImage from '@/components/MediaImage.vue';
 import api from '@/services/axios.js'
 
 const conversations = ref([]);
@@ -18,7 +19,8 @@ const showSetGroupPhotoForm = ref(false);
 const selectedGroupId = ref(null);
 const showAddUserToGroupForm = ref(false); 
 const isSetGroupNameFormOpen = ref(false); 
-const showLeaveGroupConfirmation = ref(false); //Added
+const showLeaveGroupConfirmation = ref(false);
+const photoUrl = ref('');
 
 const fetchConversations = async () => {
   loading.value = true;
@@ -146,15 +148,21 @@ const getConversationTitle = (conversation) => {
   }
 };
 
-// fix later to call the GET /media/:mediaId ep to retrieve; groupPhotoId or profilePhotoId
-const getProfilePhotoUrl = (conversation) => {
+// Updated function to use the media endpoint
+const getProfilePhotoId = (conversation) => {
   if (conversation.isGroup) {
-    return conversation.profilePhoto ? `${conversation.profilePhoto}?t=${Date.now()}` : 'https://d22r54gnmuhwmk.cloudfront.net/rendr-fe/img/default-organization-logo-6aecc771.gif';
+    if (conversation.groupPhotoId) {
+      return conversation.groupPhotoId
+    }
+  } else {
+    if (conversation.participants && conversation.participants.length > 0) {
+      const otherParticipant = conversation.participants.find(p => p.userId !== currentUserId.value);
+      if (otherParticipant && otherParticipant.profilePhotoId) {
+        return otherParticipant.profilePhotoId;
+      }
+    }
   }
-  else if (conversation.profilePhoto) {
-    return conversation.profilePhoto;
-  }
-  return 'https://static.vecteezy.com/system/resources/previews/009/292/244/non_2x/default-avatar-icon-of-social-media-user-vector.jpg'; 
+  return null;
 };
 
 const openConversation = (conversation) => {
@@ -327,7 +335,9 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
           @click="openConversation(conversation)"
           :class="{ 'bg-blue-100': selectedConversation && selectedConversation.id === conversation.id }"
         >
-          <img :src="getProfilePhotoUrl(conversation)" :alt="getConversationTitle(conversation)" class="conversation-photo">
+            <div class="conversation-photo-container">
+              <MediaImage :mediaId="getProfilePhotoId(conversation)" :alt="getConversationTitle(conversation)" className="conversation-photo"/>
+            </div>
           <div class="conversation-details">
             <h3 class="conversation-title">{{ getConversationTitle(conversation) }}</h3>
             <p class="conversation-preview">
@@ -453,6 +463,26 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
   object-fit: cover;
   margin-right: 1rem;
 }
+
+.conversation-photo-container {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  margin-right: 15px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/*
+.conversation-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+*/
 
 .conversation-details {
   flex: 1;
@@ -585,7 +615,6 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
   z-index: 1001;
 }
 
-/* Custom scrollbar styles */
 .conversation-list::-webkit-scrollbar {
   width: 6px;
 }
@@ -603,4 +632,3 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
   background: #555;
 }
 </style>
-

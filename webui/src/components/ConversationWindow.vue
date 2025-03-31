@@ -230,6 +230,13 @@ onMounted(() => {
   });
 });
 
+// Watch for title changes 
+watch(() => props.conversationTitle, (newTitle) => { 
+  if (newTitle && conversationDetails.value){
+    conversationDetails.value.title = newTitle
+  }
+});
+
 watch(() => props.conversationId, () => {
   fetchConversationDetails();
   nextTick(() => {

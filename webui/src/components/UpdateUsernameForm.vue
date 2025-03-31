@@ -172,4 +172,3 @@ const updateUsername = async () => {
   margin-top: 10px;
 }
 </style>
-
