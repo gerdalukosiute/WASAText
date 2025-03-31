@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import api from '@/services/axios.js';
 import { useRouter } from 'vue-router';
 
-const emit = defineEmits(['close', 'groupCreated']);
+const emit = defineEmits(['close', 'groupCreated', 'refreshConversations']);
 const router = useRouter();
 
 const showCreateGroupModal = ref(false);
@@ -12,10 +12,6 @@ const newParticipant = ref('');
 const participants = ref([]);
 const error = ref('');
 const isCreating = ref(false);
-
-const isFormValid = computed(() => {
-  return groupTitle.value.trim().length > 0;
-});
 
 const openCreateGroupModal = () => {
   showCreateGroupModal.value = true;
@@ -54,9 +50,9 @@ const searchAndAddParticipant = async () => {
     });
 
     if (response.data.users && response.data.users.length > 0) {
-      const user = response.data.users[0];
-      if (!participants.value.some(p => p.id === user.id)) {
-        participants.value.push({ id: user.id, name: user.name });
+      const user = response.data.users.find(u => u.username === username) || response.data.users[0];
+      if (!participants.value.some(p => p.userId === user.userId)) {
+        participants.value.push({ userId: user.userId, username: user.username });
       }
       newParticipant.value = '';
     } else {
@@ -68,12 +64,41 @@ const searchAndAddParticipant = async () => {
   }
 };
 
-const removeParticipant = (id) => {
-  participants.value = participants.value.filter(p => p.id !== id);
+const removeParticipant = (userId) => { 
+  participants.value = participants.value.filter(p => p.userId !== userId);
+};
+
+const isFormValid = computed(() => {
+  // Check if title provided
+  if (groupTitle.value.trim().length === 0) {
+    return false;
+  }
+  // Check if at least 2 other participants added
+  if (participants.value.length < 2){
+    return false;
+  };
+  
+  return true
+});
+
+const validateForm = () => {
+  if (groupTitle.value.trim().length === 0) {
+    error.value = 'Group title is required';
+    return false;
+  }
+  
+  if (participants.value.length < 2) {
+    error.value = 'At least 2 participants are required for a group';
+    return false;
+  }
+  
+  return true;
 };
 
 const createGroup = async () => {
-  if (!isFormValid.value) return;
+  if (!validateForm()) {
+    return;
+  }
   
   error.value = '';
   isCreating.value = true;
@@ -84,38 +109,34 @@ const createGroup = async () => {
       throw new Error('User not authenticated');
     }
 
-    // Create the conversation (group)
-    const conversationResponse = await api.post('/conversations', {
-      title: groupTitle.value,
+    // Get usernames for the recipients array
+    const recipientUsernames = participants.value.map(p => p.username);
+
+    const payload = {
+      recipients: recipientUsernames,
       isGroup: true,
-      participants: [userId]
-    }, {
+      title: groupTitle.value
+    }
+
+    // Create the conversation (group)
+    const response = await api.post('/conversations', payload, 
+    {
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId
       }
     });
 
-    const groupId = conversationResponse.data.id;
-
-    // Add participants to the group
-    for (const participant of participants.value) {
-      await api.post(`/groups/${groupId}`, {
-        username: participant.name
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': userId
-        }
-      });
-    }
+    const newGroup = response.data.conversations[0];
 
     // Emit event to notify parent component about the new group
     emit('groupCreated', {
-      id: groupId,
+      id: newGroup.conversationId,
       title: groupTitle.value,
-      participants: [{ id: userId, name: localStorage.getItem('username') }, ...participants.value]
+      participants: [{ id: userId, name: localStorage.getItem('username') }, ...participants.value.map(p => ({ id: p.userId, name: p.username}))]
     });
+
+    emit('refreshConversations');
 
     closeCreateGroupModal();
   } catch (err) {
@@ -161,7 +182,10 @@ const createGroup = async () => {
               />
             </div>
             <div class="form-group">
-              <label>Add Participants</label>
+              <label>Add Participants (minimum 2 required)</label>
+              <div v-if="participants.length===1" class="validation-message">
+                Add at least one more participant to create a group.
+              </div>
               <div class="participants-input-container">
                 <input 
                   v-model="newParticipant"
@@ -180,14 +204,14 @@ const createGroup = async () => {
               </div>
               <div v-if="participants.length > 0" class="participants-list">
                 <div v-for="participant in participants" 
-                     :key="participant.id" 
+                     :key="participant.userId" 
                      class="participant-tag"
                 >
-                  {{ participant.name }}
+                  {{ participant.username }}
                   <button 
                     type="button"
                     class="remove-participant-btn"
-                    @click="removeParticipant(participant.id)"
+                    @click="removeParticipant(participant.userId)"
                   >
                     &times;
                   </button>

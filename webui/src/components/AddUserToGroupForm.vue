@@ -52,7 +52,7 @@ const handleSubmit = async () => {
   try {
     const response = await api.post(
       `/groups/${props.groupId}`,
-      { username: username.value },
+      { usernames: [username.value] },
       {
         headers: {
           'Content-Type': 'application/json',
@@ -60,8 +60,6 @@ const handleSubmit = async () => {
         }
       }
     );
-
-    console.log('Server response:', response);
 
     if (response.status === 200) {
       success.value = `User ${username.value} added to the group successfully!`;
@@ -133,7 +131,6 @@ const handleSubmit = async () => {
     </div>
   </div>
 </template>
-
 
 <style scoped>
 .add-user-to-group-form-overlay {

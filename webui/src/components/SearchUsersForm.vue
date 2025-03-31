@@ -1,17 +1,15 @@
 <script setup>
 import { ref } from 'vue';
 import api from '@/services/axios.js';
-import { useRouter } from 'vue-router';
 
-const emit = defineEmits(['close', 'conversationCreated']);
+const emit = defineEmits(['close', 'conversationCreated', 'refreshConversations']);
 
 const searchQuery = ref('');
-const users = ref([]);
+const users = ref([]); 
 const loading = ref(false);
 const error = ref(null);
 const searchPerformed = ref(false);
 const showSearchModal = ref(false);
-const router = useRouter();
 
 let debounceTimer;
 
@@ -87,11 +85,16 @@ const startConversation = async (user) => {
     return;
   }
 
+  if (user.userId === userId) {
+  error.value = 'You cannot start a conversation with yourself.';
+  return;
+  }
+
+  // Try creating 1-on-1 convo
   try {
     const response = await api.post('/conversations', {
-      title: user.name,
-      isGroup: false,
-      participants: [user.id]
+      recipients: [user.username], 
+      isGroup: false   
     }, {
       headers: {
         'Content-Type': 'application/json',
@@ -99,21 +102,26 @@ const startConversation = async (user) => {
       }
     });
 
-    // Add the new conversation to the list
-    const newConversation = {
-      conversationId: response.data.id,
-      title: user.name,
-      isGroup: false,
-      createdAt: new Date().toISOString(),
-      participants: [{ id: user.id, name: user.name }, { id: userId, name: localStorage.getItem('username') }],
-      lastMessage: null
-    };
+    // Take newly created convo from the top
+    const newConversation = response.data.conversations[0];
 
-    // Emit an event to add the new conversation to the list
-    emit('conversationCreated', newConversation);
+    if (newConversation) {
+      const conversationData = {
+        conversationId: newConversation.conversationId,
+        title: user.username,
+        isGroup: false,
+        createdAt: newConversation.createdAt,
+        participants: [{ id: user.userId, name: user.username }, { id: userId, name: localStorage.getItem('username') }],
+        lastMessage: newConversation.lastMessage
+      };
+      
+      emit('conversationCreated', conversationData);
+      emit('refreshConversations');
 
-    closeSearchModal();
-    router.push({ name: 'conversation', params: { id: response.data.id } });
+      closeSearchModal();
+    } else {
+      throw new Error('Could not find the newly created conversation');
+    }
   } catch (err) {
     console.error('Error starting conversation:', err);
     error.value = 'Failed to start conversation. Please try again.';
@@ -156,8 +164,8 @@ const startConversation = async (user) => {
           <div v-else-if="error" class="error">{{ error }}</div>
           <div v-else-if="users.length > 0" class="user-list-wrapper">
             <div class="user-list">
-              <div v-for="user in users" :key="user.id" class="user-item">
-                <span>{{ user.name }} (ID: {{ user.id }})</span>
+              <div v-for="user in users" :key="user.userId" class="user-item">
+                <span>{{ user.username }} (ID: {{ user.userId }})</span>
                 <button @click="startConversation(user)" class="start-conversation-btn">
                   <i class="fas fa-plus"></i>
                 </button>

@@ -1163,6 +1163,7 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 	var details ConversationDetails
 	var profilePhoto sql.NullString
 	var createdAt time.Time
+	var isGroup bool
 	
 	err = tx.QueryRow(`
 		SELECT id, title, is_group, profile_photo, created_at
@@ -1171,7 +1172,7 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 	`, conversationID).Scan(
 		&details.ID,
 		&details.Title,
-		&details.IsGroup,
+		&isGroup,
 		&profilePhoto,
 		&createdAt,
 	)
@@ -1184,9 +1185,28 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 	}
 	
 	details.CreatedAt = createdAt
+	details.IsGroup = isGroup
 	if profilePhoto.Valid {
 		details.ProfilePhoto = profilePhoto.String
 	}
+
+	// For 1-on-1 convos use other participants name as title
+	if !isGroup {
+   		var otherUserName string
+   		err = tx.QueryRow(`
+     		SELECT u.name
+     		FROM users u
+     		JOIN user_conversations uc ON u.id = uc.user_id
+     		WHERE uc.conversation_id = ? AND u.id != ?
+     		LIMIT 1
+   		`, conversationID, userID).Scan(&otherUserName)
+
+
+   		if err == nil {
+     		details.Title = otherUserName
+   		}
+ 	}
+
 
 	// Get participants
 	rows, err := tx.Query(`

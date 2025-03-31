@@ -25,7 +25,8 @@ const conversationDetails = ref({
   id: '',
   title: '',
   isGroup: false,
-  updatedAt: '',
+  groupPhotoId: '',
+  createdAt: '',
   participants: [],
   messages: []
 });
@@ -65,7 +66,26 @@ const fetchConversationDetails = async () => {
       throw new Error('Invalid response from server');
     }
 
-    conversationDetails.value = response.data;
+    conversationDetails.value = {
+    id: response.data.conversationId,
+    title: response.data.title,
+    isGroup: response.data.isGroup,
+    groupPhotoId: response.data.groupPhotoId,
+    createdAt: response.data.createdAt,
+    participants: response.data.participants,
+    messages: response.data.messages.map(msg => ({
+      id: msg.messageId,
+      content: msg.content,
+      type: msg.type,
+      timestamp: msg.timestamp,
+      status: msg.status,
+      sender: msg.sender.userId,
+      senderName: msg.sender.username,
+      comments: msg.comments || []
+    }))
+    };
+
+    // sorting (may be redundant, check)
     conversationDetails.value.messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     messages.value = conversationDetails.value.messages;
 
@@ -135,7 +155,7 @@ const sendMessage = async (content, type = 'text') => {
 
     const response = await api.post(`/conversations/${props.conversationId}/messages`, {
       content,
-      messageType: type
+      type: type
     }, {
       headers: {
         'Content-Type': 'application/json',
@@ -145,7 +165,9 @@ const sendMessage = async (content, type = 'text') => {
 
     const newMessage = {
       ...response.data,
-      senderName: 'You',
+      id: response.data.messageId,
+      senderName: response.data.sender.username,
+      sender: response.data.sender.userId,
       status: 'sent',
       comments: []
     };
@@ -238,9 +260,9 @@ watch(messages, () => {
         {{ error }}
       </div>
       <template v-else-if="messages && messages.length">
-        <div v-for="message in messages" :key="message.id" class="message-container" :class="{'sent': message.senderId === currentUserId, 'received': message.senderId !== currentUserId}">
+        <div v-for="message in messages" :key="message.id" class="message-container" :class="{'sent': message.sender === currentUserId, 'received': message.sender !== currentUserId}">
           <div class="message-header">
-            <span class="sender-name">{{ message.sender }}</span>
+            <span class="sender-name">{{ message.senderName }}</span>
             <span v-if="message.icon" class="message-icon">{{ message.icon }}</span>
           </div>
           <div class="message-content-wrapper">
@@ -567,4 +589,3 @@ watch(messages, () => {
   display: none;
 }
 </style>
-

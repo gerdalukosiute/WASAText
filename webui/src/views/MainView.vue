@@ -45,8 +45,11 @@ const handleImageError = () => {
 };
 
 const handleConversationCreated = async (newConversation) => {
-  await conversationListRef.value.fetchConversations();
-  await conversationListRef.value.fetchConversationDetails(newConversation.id);
+  listKey.value += 1;
+};
+
+const fetchConversations = async () => {
+  listKey.value += 1;
 };
 
 onMounted(async () => {
@@ -72,8 +75,8 @@ onMounted(async () => {
             More Actions
           </button>
           <div v-if="showDropdown" class="dropdown-content">
-            <SearchUsersForm @close="closeDropdown" @conversationCreated="handleConversationCreated" />
-            <CreateGroupForm @close="closeDropdown" />
+            <SearchUsersForm @close="closeDropdown" @conversationCreated="handleConversationCreated" @refreshConversations="fetchConversations"/>
+            <CreateGroupForm @close="closeDropdown" @refreshConversations="fetchConversations"/>
             <SetProfilePhotoForm @photoUpdated="updatePhotoUrl" @close="closeDropdown" />
             <UpdateUsernameForm 
               :currentUsername="username" 
@@ -85,7 +88,7 @@ onMounted(async () => {
       </div>
     </div>
     <div class="content-container">
-      <ConversationList :key="listKey" :conversations="conversations"/>
+      <ConversationList :key="listKey" :conversations="conversations" ref="conversationListRef" />
     </div>
   </div>
 </template>

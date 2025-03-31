@@ -37,11 +37,11 @@ const fetchConversations = async () => {
       }
     });
 
-    if (!Array.isArray(response.data)) {
-      throw new Error('Invalid response format. Expected an array.');
+    if (!response.data || !response.data.conversations) {
+      throw new Error('Invalid response format. Expected conversations array.');
     }
 
-    const fetchedConversations = response.data.map(conv => ({
+    const fetchedConversations = response.data.conversations.map(conv => ({
       ...conv,
       id: conv.conversationId,
       lastMessage: conv.lastMessage || null,
@@ -92,9 +92,13 @@ const fetchConversationDetails = async (conversation) => {
     }
 
     conversation.participants = response.data.participants || [];
-    conversation.updatedAt = response.data.updatedAt;
+    conversation.title = response.data.title;
+    conversation.isGroup = response.data.isGroup;
+    conversation.groupPhotoId = response.data.groupPhotoId;
+    conversation.createdAt = response.data.createdAt;
+    conversation.updatedAt = response.data.updatedAt; // Fallback, remove later
 
-    console.log('Processed conversation details:', conversation.participants, conversation.updatedAt);
+    console.log('Processed conversation details:', conversation.participants, conversation.createdAt);
   } catch (err) {
     console.error('Error fetching conversation:', err);
     error.value = 'Failed to load conversation. Please try again.';
@@ -138,13 +142,11 @@ const getConversationTitle = (conversation) => {
   if (conversation.isGroup) {
     return conversation.title || 'Unnamed Group';
   } else {
-    // For 2-person conversations, find the other participant
-    const otherParticipant = conversation.participants?.find(p => p.id !== currentUserId.value);
-    const thisParticipant = conversation.participants?.find(p => p.id === currentUserId.value);
-    return otherParticipant ? otherParticipant.name : conversation.title || thisParticipant.name;
+    return conversation.title || 'Sumting wong';
   }
 };
 
+// fix later to call the GET /media/:mediaId ep to retrieve; groupPhotoId or profilePhotoId
 const getProfilePhotoUrl = (conversation) => {
   if (conversation.isGroup) {
     return conversation.profilePhoto ? `${conversation.profilePhoto}?t=${Date.now()}` : 'https://d22r54gnmuhwmk.cloudfront.net/rendr-fe/img/default-organization-logo-6aecc771.gif';
@@ -180,7 +182,7 @@ const getConversationTimestamp = (conversation) => {
       conversation.lastMessage.timestamp !== "0001-01-01T00:00:00Z") {
     return new Date(conversation.lastMessage.timestamp);
   }
-  return new Date(conversation.updatedAt);
+  return new Date(conversation.createdAt);
 };
 
 const openSetGroupPhotoForm = (groupId) => {

@@ -42,7 +42,7 @@ async function handleSubmit(e) {
     return
   }
 
-  const requestBody = { username: trimmedUsername }
+  const requestBody = { name: trimmedUsername }
   console.log('Request body:', requestBody)
 
   try {
@@ -56,7 +56,7 @@ async function handleSubmit(e) {
     console.log('Login successful:', response.data)
     
     if (response.data.identifier) {
-      localStorage.setItem('userId', response.data.identifier)
+      localStorage.setItem('userId', response.data.identifier) // Store the Id
       localStorage.setItem('username', trimmedUsername) // Store the username
       router.push('/main')
     } else {
