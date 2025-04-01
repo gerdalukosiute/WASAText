@@ -37,6 +37,7 @@ type ParticipantResponse struct {
 type MessageResponse struct {
     MessageID       string             `json:"messageId"`
     ParentMessageID string             `json:"parentMessageId,omitempty"`
+	IsForwarded     bool               `json:"isForwarded,omitempty"`
     Sender          SenderResponse     `json:"sender"`
     Type            string             `json:"type"`
     Content         string             `json:"content"`
@@ -954,6 +955,7 @@ func convertMessages(dbMessages []database.Message) []MessageResponse {
 			Timestamp: m.Timestamp.Format(time.RFC3339),
 			Status:    m.Status,
 			Reactions: convertReactions(m.Comments),
+			IsForwarded: m.IsForwarded,
 		}
 		
 		// Add parent message ID if present

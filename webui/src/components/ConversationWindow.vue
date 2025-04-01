@@ -45,8 +45,12 @@ const messageArea = ref(null);
 const showReactionBar = ref({});
 const showReactionDetails = ref({});
 const forwardDeleteForms = ref([]);
-const selectedFile = ref(null); // Added
-const previewUrl = ref(''); // Added
+const selectedFile = ref(null); 
+const previewUrl = ref(''); 
+const longPressTimer = ref(null);
+const longPressMessageId = ref(null);
+const longPressDuration = 500;
+const longPressCompleted = ref(false);
 
 const fetchConversationDetails = async () => {
   loading.value = true;
@@ -111,7 +115,8 @@ const fetchConversationDetails = async () => {
           status: msg.status,
           sender: msg.sender.userId,
           senderName: msg.sender.username,
-          comments: comments 
+          comments: comments,
+          isForwarded: msg.isForwarded || false 
         };
       })
 
@@ -122,6 +127,10 @@ const fetchConversationDetails = async () => {
     messages.value = conversationDetails.value.messages;
 
     console.log('Processed conversation details:', conversationDetails.value);
+
+    // reset reaction bar and details
+    showReactionBar.value = {};
+    showReactionDetails.value = {};
   } catch (err) {
     console.error('Error fetching conversation:', err);
     error.value = 'Failed to load conversation. Please try again.';
@@ -338,12 +347,110 @@ const scrollToBottom = () => {
   }
 };
 
+// For message action dropdown
+const handleMessageMouseDown = (messageId, event) => {
+  // Only handle left mouse button (button 0)
+  if (event.button !== 0) return;
+  
+  longPressCompleted.value = false;
+
+  // Start the long press timer
+  longPressMessageId.value = messageId;
+  longPressTimer.value = setTimeout(() => {
+    // Find the ForwardDeleteForm ref for this message and show it
+    const formIndex = messages.value.findIndex(m => m.id === messageId);
+    if (formIndex !== -1 && forwardDeleteForms.value[formIndex]) {
+      forwardDeleteForms.value[formIndex].showDropdown(event);
+      longPressCompleted.value = true;
+    }
+    longPressTimer.value = null;
+  }, longPressDuration);
+};
+
+const handleMessageMouseUp = () => {
+  if (longPressTimer.value) {
+    clearTimeout(longPressTimer.value);
+    longPressTimer.value = null;
+  }
+};
+
+const handleMessageClick = (messageId, event) => {
+  // If this was the end of a long press, don't toggle reactions
+  if (longPressCompleted.value) {
+    longPressCompleted.value = false;
+    return;
+  }
+
+  // Otherwise, toggle reactions as normal
+  toggleReactionBar(messageId);
+};
+
+const handleMessageMouseLeave = () => {
+  if (longPressTimer.value) {
+    clearTimeout(longPressTimer.value);
+    longPressTimer.value = null;
+  }
+};
+
+const handleMessageTouchStart = (messageId) => {
+  longPressCompleted.value = false;
+  longPressMessageId.value = messageId;
+  longPressTimer.value = setTimeout(() => {
+    const formIndex = messages.value.findIndex(m => m.id === messageId);
+    if (formIndex !== -1 && forwardDeleteForms.value[formIndex]) {
+      forwardDeleteForms.value[formIndex].showDropdown();
+      longPressCompleted.value = true;
+    }
+    longPressTimer.value = null;
+  }, longPressDuration);
+};
+
+const handleMessageTouchEnd = () => {
+  if (longPressTimer.value) {
+    clearTimeout(longPressTimer.value);
+    longPressTimer.value = null;
+  }
+};
+
 const handleMessageDeleted = (messageId) => {
   messages.value = messages.value.filter(message => message.id !== messageId);
 };
 
-const handleMessageForwarded = (messageId) => {
-  console.log('Message forwarded:', messageId);
+const handleMessageForwarded = (data) => {
+  // Check if data is a string (old format) or an object (new format)
+  if (typeof data === 'string') {
+    // Old format - just a messageId
+    console.log('Message forwarded:', data);
+  } else {
+    // New format - complete forwarded message data
+    console.log('Message forwarded:', data.messageId);
+    
+    // If the forwarded message is for the current conversation, we could add it
+    if (data.forwardedMessage && data.forwardedMessage.targetConversationId === props.conversationId) {
+      // Create a message object in the format expected by the component
+      const forwardedMsg = {
+        id: data.forwardedMessage.id,
+        content: data.forwardedMessage.content,
+        type: data.forwardedMessage.type,
+        timestamp: data.forwardedMessage.forwardedTimestamp,
+        status: 'sent',
+        sender: data.forwardedMessage.forwardedBy.userId,
+        senderName: data.forwardedMessage.forwardedBy.username,
+        comments: [],
+        // Add forwarded message specific fields
+        isForwarded: true,
+        originalSender: data.forwardedMessage.originalSender,
+        originalTimestamp: data.forwardedMessage.originalTimestamp
+      };
+      
+      // Add the message to the conversation
+      messages.value.push(forwardedMsg);
+      
+      // Refresh the conversation to ensure everything is up to date
+      fetchConversationDetails();
+    }
+    emit('messageSent');
+  }
 };
 
 const handleStatusUpdate = ({ messageId, status }) => {
@@ -397,7 +504,10 @@ watch(messages, () => {
         {{ error }}
       </div>
       <template v-else-if="messages && messages.length">
-        <div v-for="message in messages" :key="message.id" class="message-container" :class="{'sent': message.sender === currentUserId, 'received': message.sender !== currentUserId}">
+        <div v-for="(message, index) in messages" 
+        :key="message.id" 
+        class="message-container" 
+        :class="{'sent': message.sender === currentUserId, 'received': message.sender !== currentUserId}">
           <div class="message-header">
             <span class="sender-name">{{ message.senderName }}</span>
             <span v-if="message.icon" class="message-icon">{{ message.icon }}</span>
@@ -409,7 +519,19 @@ watch(messages, () => {
               @messageForwarded="handleMessageForwarded"
               @toggleReactionBar="toggleReactionBar"
               ref="forwardDeleteForms">
-            <div class="message-content">
+              <div
+                class="message-content"
+                @mousedown="handleMessageMouseDown(message.id, $event)"
+                @mouseup="handleMessageMouseUp"
+                @mouseleave="handleMessageMouseLeave"
+                @click.stop="handleMessageClick(message.id, $event)"
+                @touchstart="handleMessageTouchStart(message.id)"
+                @touchend="handleMessageTouchEnd"
+              >
+              <div v-if="message.isForwarded" class="forwarded-info">
+              <i class="fa-regular fa-share-from-square"></i>
+              <span>forwarded</span>
+              </div>
               <template v-if="message.type === 'text'">
                 <p>{{ message.content }}</p>
               </template>
@@ -541,6 +663,17 @@ watch(messages, () => {
   max-width: 70%;
   position: relative;
   min-width: 10%;
+  user-select: none;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+.message-container:active {
+  opacity: 0.9;
+}
+
+.long-press-active {
+  background-color: rgba(0, 0, 0, 0.05)
 }
 
 .message-container.sent {
@@ -716,6 +849,23 @@ watch(messages, () => {
 .message-reactions {
   font-size: 0.9em;
   margin-top: 4px;
+}
+
+.forwarded-message{
+  opacity: 0.9;
+}
+
+.forwarded-info {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.forwarded-info i {
+  font-size: 0.7rem;
 }
 
 .loader {

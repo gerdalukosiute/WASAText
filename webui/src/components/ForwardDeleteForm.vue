@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue';
 import api from '@/services/axios.js';
+import { onMounted, onUnmounted } from 'vue';
 
 const props = defineProps({
   messageId: {
@@ -19,6 +20,7 @@ const conversations = ref([]);
 const selectedConversation = ref('');
 const loading = ref(false);
 const error = ref(null);
+const popupRef = ref(null);
 
 const handleClick = () => {
   if (clickTimer.value === null) {
@@ -27,13 +29,6 @@ const handleClick = () => {
       clickTimer.value = null;
     }, clickDelay);
   }
-};
-
-const handleDoubleClick = (event) => {
-  event.preventDefault();
-  clearTimeout(clickTimer.value);
-  clickTimer.value = null;
-  showPopup.value = !showPopup.value;
 };
 
 const openForwardDialog = () => {
@@ -47,6 +42,7 @@ const closeForwardDialog = () => {
   selectedConversation.value = '';
 };
 
+/*old
 const fetchConversations = async () => {
   loading.value = true;
   error.value = null;
@@ -79,7 +75,9 @@ const fetchConversations = async () => {
     loading.value = false;
   }
 };
+*/
 
+/* old
 const handleForward = async () => {
   try {
     const userId = localStorage.getItem('userId');
@@ -114,6 +112,102 @@ const handleForward = async () => {
     }
   }
 };
+*/
+
+const fetchConversations = async () => {
+  loading.value = true;
+  error.value = null;
+  try {
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
+
+
+    const response = await api.get('/conversations', {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': userId
+      }
+    });
+
+
+    // Check if response.data has a conversations property
+    if (response.data && Array.isArray(response.data.conversations)) {
+      // Use the conversations array from the response
+      conversations.value = response.data.conversations.map(conv => ({
+        id: conv.conversationId,
+        title: conv.title || (conv.isGroup ? 'Unnamed Group' : 'Direct Message')
+      }));
+    } else if (Array.isArray(response.data)) {
+      // Fallback to the old format for backward compatibility
+      conversations.value = response.data.map(conv => ({
+        id: conv.conversationId,
+        title: conv.title || (conv.isGroup ? 'Unnamed Group' : 'Direct Message')
+      }));
+    } else {
+      throw new Error('Invalid response format. Expected conversations array.');
+    }
+
+
+  } catch (err) {
+    console.error('Error fetching conversations:', err);
+    error.value = 'Failed to load conversations. Please try again.';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const handleForward = async () => {
+  try {
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
+
+    if (!selectedConversation.value) {
+      alert('Please select a conversation to forward the message to.');
+      return;
+    }
+
+    const response = await api.post(`/messages/${props.messageId}/forward`, {
+      originalMessageId: props.messageId,
+      targetConversationId: selectedConversation.value
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': userId
+      }
+    });
+
+    console.log('Message forwarded:', response.data);
+    
+    // Emit the forwarded message data to the parent component
+    emit('messageForwarded', {
+      messageId: props.messageId,
+      forwardedMessage: {
+        id: response.data.newMessageId,
+        originalMessageId: response.data.originalMessageId,
+        targetConversationId: response.data.targetConversationId,
+        originalSender: response.data.originalSender,
+        forwardedBy: response.data.forwardedBy,
+        content: response.data.content,
+        type: response.data.type,
+        originalTimestamp: response.data.originalTimestamp,
+        forwardedTimestamp: response.data.forwardedTimestamp
+      }
+    });
+    
+    closeForwardDialog();
+  } catch (error) {
+    console.error('Error forwarding message:', error);
+    if (error.response && error.response.data && error.response.data.error) {
+      alert(`Failed to forward message: ${error.response.data.error}`);
+    } else {
+      alert('Failed to forward message. Please try again.');
+    }
+  }
+};
 
 const handleDelete = async () => {
   try {
@@ -136,17 +230,49 @@ const handleDelete = async () => {
     console.error('Error deleting message:', error);
   }
 };
+
+const showDropdown = () => {
+  if (event) {
+    event.stopPropagation();
+  }
+  showPopup.value = true;
+}; 
+
+const hideDropdown = () => {
+  showPopup.value = false;
+}
+
+const handleOutsideClick = (event) => {
+  // Check if the popup is open and the click is outside the popup
+  if (showPopup.value && popupRef.value && !popupRef.value.contains(event.target)) {
+    showPopup.value = false;
+  }
+};
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleOutsideClick);
+  document.addEventListener('touchstart', handleOutsideClick);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleOutsideClick);
+  document.removeEventListener('touchstart', handleOutsideClick);
+});
+
+defineExpose({
+  showDropdown,
+  hideDropdown
+});
 </script>
 
 <template>
   <div>
     <div 
       @click="handleClick"
-      @dblclick="handleDoubleClick"
     >
       <slot></slot>
     </div>
-    <div v-if="showPopup" class="popup">
+    <div v-if="showPopup" class="popup" ref="popupRef" @click.stop>
       <button @click="openForwardDialog" class="popup-button forward-button">
         <i class="fa-regular fa-share-from-square"></i> Forward
       </button>
