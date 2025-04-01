@@ -39,6 +39,9 @@ const error = ref(null);
 const popupRef = ref(null);
 const showReplyDialog = ref(false);
 const replyMessage = ref('');
+const replyType = ref('text');
+const selectedFile = ref(null);
+const previewUrl = ref('');
 
 const currentUserId = ref(localStorage.getItem('userId'));
 const isCurrentUserSender = computed(() => {
@@ -194,14 +197,27 @@ const handleDelete = async () => {
   }
 };
 
-const openReplyDialog = () => {
-  showPopup.value = false;
-  showReplyDialog.value = true;
+const handleFileChange = (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+ 
+  // Clean up previous preview if exists
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value);
+  }
+ 
+  selectedFile.value = file;
+  replyType.value = 'photo';
+  previewUrl.value = URL.createObjectURL(file);
 };
 
-const closeReplyDialog = () => {
-  showReplyDialog.value = false;
-  replyMessage.value = '';
+const resetImageUpload = () => {
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value);
+  }
+  selectedFile.value = null;
+  previewUrl.value = '';
+  replyType.value = 'text';
 };
 
 const handleReply = async () => {
@@ -211,43 +227,89 @@ const handleReply = async () => {
       throw new Error('User not authenticated');
     }
 
-    if (!replyMessage.value.trim()) {
-      alert('Please enter a message to reply with.');
-      return;
-    }
-
-    const response = await api.post(`/conversations/${props.conversationId}/messages`, {
-      content: replyMessage.value,
-      type: 'text',
-      parentMessageId: props.messageId
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-ID': userId
-      }
-    });
-
-    console.log('Message replied:', response.data);
+    console.log('Sending reply to conversation:', props.conversationId);
     
-    // Emit the reply message data to the parent component
-    emit('messageReplied', {
-      messageId: response.data.messageId,
-      parentMessageId: response.data.parentMessageId,
-      content: response.data.content,
-      type: response.data.type,
-      timestamp: response.data.timestamp,
-      sender: response.data.sender
-    });
+    if (replyType.value === 'text') {
+      if (!replyMessage.value.trim()) {
+        alert('Please enter a message to reply with.');
+        return;
+      }
+      
+      console.log('Reply data:', {
+        content: replyMessage.value,
+        type: 'text',
+        parentMessageId: props.messageId
+      });
+
+      const response = await api.post(`/conversations/${props.conversationId}/messages`, {
+        content: replyMessage.value,
+        type: 'text',
+        parentMessageId: props.messageId
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId
+        }
+      });
+
+      console.log('Message replied:', response.data);
+      
+      emit('messageReplied', response.data);
+    } else if (replyType.value === 'photo') {
+      if (!selectedFile.value) {
+        alert('Please select an image to reply with.');
+        return;
+      }
+      
+      const formData = new FormData();
+      formData.append('type', 'photo');
+      formData.append('photo', selectedFile.value);
+      formData.append('parentMessageId', props.messageId);
+      
+      console.log('Sending photo reply with parent message ID:', props.messageId);
+      
+      const response = await api.post(
+        `/conversations/${props.conversationId}/messages`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            'X-User-ID': userId
+          }
+        }
+      );
+      
+      console.log('Photo reply response:', response.data);
+      
+      emit('messageReplied', response.data);
+    }
     
     closeReplyDialog();
   } catch (error) {
     console.error('Error replying to message:', error);
-    if (error.response && error.response.data && error.response.data.error) {
-      alert(`Failed to reply to message: ${error.response.data.error}`);
-    } else {
-      alert('Failed to reply to message. Please try again.');
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
     }
+    if (error.request) {
+      console.error('Request:', error.request);
+    }
+    if (error.config) {
+      console.error('Request config:', error.config);
+    }
+    alert(`Failed to reply to message: ${error.message}`);
   }
+};
+
+const closeReplyDialog = () => {
+  showReplyDialog.value = false;
+  replyMessage.value = '';
+  resetImageUpload();
+};
+
+const openReplyDialog = () => {
+  showPopup.value = false;
+  showReplyDialog.value = true;
 };
 
 const showDropdown = () => {
@@ -262,7 +324,6 @@ const hideDropdown = () => {
 }
 
 const handleOutsideClick = (event) => {
-  // Check if the popup is open and the click is outside the popup
   if (showPopup.value && popupRef.value && !popupRef.value.contains(event.target)) {
     showPopup.value = false;
   }
@@ -344,7 +405,26 @@ defineExpose({
           <h2>Reply to Message</h2>
           <button @click="closeReplyDialog" class="close">&times;</button>
         </div>
-        <div class="modal-body">
+      <div class="modal-body">
+        <!-- Image upload section -->
+        <div v-if="replyType === 'photo'" class="image-reply-section">
+          <div v-if="previewUrl" class="image-preview">
+            <img :src="previewUrl" alt="Preview" class="preview-image" />
+          </div>
+          <div class="form-actions">
+            <button @click="replyType = 'text'" class="cancel-btn">Switch to Text</button>
+            <button
+              @click="handleReply"
+              class="create-btn"
+              :disabled="!selectedFile"
+            >
+              Send Reply
+            </button>
+          </div>
+        </div>
+
+        <!-- Text reply section -->
+        <div v-else class="text-reply-section">
           <div class="form-group">
             <label for="reply-message">Your Reply</label>
             <textarea
@@ -356,19 +436,26 @@ defineExpose({
             ></textarea>
           </div>
           <div class="form-actions">
+            <div class="file-input-container">
+              <label for="reply-image-upload" class="file-input-label">
+                <i class="fa-regular fa-images"></i> Add Image
+              </label>
+              <input id="reply-image-upload" type="file" accept="image/*" @change="handleFileChange" class="file-input" />
+            </div>
             <button @click="closeReplyDialog" class="cancel-btn">Cancel</button>
             <button
               @click="handleReply"
               class="create-btn"
               :disabled="!replyMessage.trim()"
             >
-              Reply
+              Send Reply
             </button>
           </div>
         </div>
       </div>
     </div>
   </div>
+</div>
 </template>
 
 <style scoped>
@@ -556,4 +643,45 @@ defineExpose({
 .reply-button i {
   margin-right: 8px;
 }
+
+.image-reply-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.image-preview {
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.file-input-container {
+  margin-right: auto;
+}
+
+.file-input-label {
+  display: inline-block;
+  padding: 8px 16px;
+  background-color: #f0f0f0;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  text-align: center;
+}
+
+.file-input-label:hover {
+  background-color: #e0e0e0;
+}
+
+.file-input {
+  display: none;
+}
+
 </style>

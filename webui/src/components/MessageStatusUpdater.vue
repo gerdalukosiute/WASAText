@@ -84,6 +84,7 @@ const getStatusTitle = () => {
 const checkAndUpdateMessageStatus = () => {
   if (updateAttempts.value < 3) {
     updateAttempts.value++;
+    // Only update status to 'read' if we're the recipient (not the sender)
     if (status.value === 'delivered' && props.senderId !== currentUserId.value) {
       updateMessageStatus('read');
     }
@@ -105,7 +106,7 @@ watch(() => props.initialStatus, (newStatus) => {
 </script>
 
 <template>
-  <span class="message-status" :title="getStatusTitle()">{{ getMessageStatusIcon() }}</span>
+  <span v-if="props.senderId === currentUserId" class="message-status" :title="getStatusTitle()">{{ getMessageStatusIcon() }}</span>
 </template>
 
 

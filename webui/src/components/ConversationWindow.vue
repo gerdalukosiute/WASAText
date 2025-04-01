@@ -537,7 +537,13 @@ watch(messages, () => {
           <div class="parent-message-line"></div>
             <div class="parent-message-content">
               <span class="parent-sender">{{ getParentMessage(message.parentMessageId).senderName }}</span>
-                <p class="parent-text">{{ getParentMessage(message.parentMessageId).content }}</p>
+                <p v-if="getParentMessage(message.parentMessageId).type === 'text'" class="parent-text">
+                  {{ getParentMessage(message.parentMessageId).content }}
+                </p>
+                <!-- Display image for photo messages -->
+                <div v-else-if="getParentMessage(message.parentMessageId).type === 'photo'" class="parent-image">
+                  <MediaImage :mediaId="getParentMessage(message.parentMessageId).content" alt="Replied image" className="parent-message-image" />
+                </div>
             </div>
           </div>
           <div class="message-header">
@@ -548,8 +554,10 @@ watch(messages, () => {
             <ForwardDeleteForm 
               :messageId="message.id"
               :senderId="message.sender"
+              :conversationId="props.conversationId"
               @messageDeleted="handleMessageDeleted"
               @messageForwarded="handleMessageForwarded"
+              @messageReplied="handleMessageReplied"
               @toggleReactionBar="toggleReactionBar"
               ref="forwardDeleteForms">
               <div
@@ -586,7 +594,7 @@ watch(messages, () => {
           <span class="message-time">{{ formatDate(message.timestamp) }}</span>
           <MessageStatusUpdater 
             :messageId="message.id"
-            :senderId="message.senderId"
+            :senderId="message.sender"
             :initialStatus="message.status"
             :isGroupChat="conversationDetails.isGroup"
             :participantCount="conversationDetails.participants.length"
@@ -990,5 +998,16 @@ watch(messages, () => {
 
 .received .parent-message-preview {
   border-left-color: #94a3b8;
+}
+
+.parent-message-image {
+  max-width: 100px;
+  max-height: 60px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.parent-image {
+  margin-top: 4px;
 }
 </style>
