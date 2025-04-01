@@ -176,6 +176,10 @@ const closeConversation = () => {
 };
 
 const toggleDropdown = (conversationId) => {
+  if (event) {
+    event.stopPropagation();
+  }
+
   showDropdown.value = {
     ...showDropdown.value,
     [conversationId]: !showDropdown.value[conversationId]
@@ -196,6 +200,10 @@ const getConversationTimestamp = (conversation) => {
 };
 
 const openSetGroupPhotoForm = (groupId) => {
+  if (event) {
+    event.stopPropagation();
+  }
+
   selectedGroupId.value = groupId;
   showSetGroupPhotoForm.value = true;
   showDropdown.value[groupId] = false;
@@ -219,6 +227,10 @@ const handleGroupPhotoUpdated = async ({ groupId, newPhotoId }) => {
 };
 
 const openAddUserToGroupForm = (groupId) => {
+  if (event) {
+    event.stopPropagation();
+  }
+
   selectedGroupId.value = groupId;
   showAddUserToGroupForm.value = true;
   showDropdown.value[groupId] = false;
@@ -241,6 +253,10 @@ const handleUserAdded = async ({ groupId, username }) => {
 };
 
 const openSetGroupNameForm = (groupId) => {
+  if (event) {
+    event.stopPropagation();
+  }
+
   selectedGroupId.value = groupId;
   isSetGroupNameFormOpen.value = true;
   showDropdown.value[groupId] = false;
@@ -267,6 +283,10 @@ const getGroupName = (groupId) => {
 };
 
 const confirmLeaveGroup = (groupId) => {
+  if (event) {
+    event.stopPropagation();
+  }
+
   selectedGroupId.value = groupId;
   showLeaveGroupConfirmation.value = true;
   showDropdown.value[groupId] = false;
@@ -289,6 +309,11 @@ const leaveGroup = async () => {
       throw new Error('User not authenticated');
     }
 
+    // make sure conversations window closed
+    if (selectedConversation.value && selectedConversation.value.id === selectedGroupId.value) {
+      selectedConversation.value = null;
+    }
+
     const response = await api.delete(`/groups/${selectedGroupId.value}`, {
       headers: {
         'Content-Type': 'application/json',
@@ -296,18 +321,12 @@ const leaveGroup = async () => {
       }
     });
 
-    if (response.data.isGroupDeleted) {
-      conversations.value = conversations.value.filter(c => c.id !== selectedGroupId.value);
-    } else {
-      const updatedConversation = conversations.value.find(c => c.id === selectedGroupId.value);
-      if (updatedConversation) {
-        await fetchConversationDetails(updatedConversation);
-        conversations.value = [...conversations.value];
-      }
-    }
+    conversations.value = conversations.value.filter(c => c.id !== selectedGroupId.value);
 
     showLeaveGroupConfirmation.value = false;
     selectedGroupId.value = null;
+
+    await fetchConversations();
   } catch (err) {
     console.error('Error leaving group:', err);
     error.value = 'Failed to leave group. Please try again.';
@@ -358,21 +377,21 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
               {{ formatDate(conversation) }}
             </p>
           </div>
-          <div v-if="conversation.isGroup" class="group-actions">
+          <div v-if="conversation.isGroup" class="group-actions" @click.stop>
             <button @click.stop="toggleDropdown(conversation.id)" class="group-actions-btn">
               ...
             </button>
-            <div v-if="showDropdown[conversation.id]" class="group-dropdown">
-              <button @click="openSetGroupPhotoForm(conversation.id)" class="dropdown-item">
+            <div v-if="showDropdown[conversation.id]" class="group-dropdown" @click.stop>
+              <button @click.stop="openSetGroupPhotoForm(conversation.id)" class="dropdown-item">
                 <i class="fa-regular fa-images"></i> Set group photo
               </button>
-              <button @click="openSetGroupNameForm(conversation.id)" class="dropdown-item">
+              <button @click.stop="openSetGroupNameForm(conversation.id)" class="dropdown-item">
               <i class="fas fa-edit"></i> Set group name
               </button>
-              <button @click="openAddUserToGroupForm(conversation.id)" class="dropdown-item">
+              <button @click.stop="openAddUserToGroupForm(conversation.id)" class="dropdown-item">
                 <i class="fa-solid fa-plus"></i> Add a new member
               </button>
-              <button @click="confirmLeaveGroup(conversation.id)" class="dropdown-item text-red-500">
+              <button @click.stop="confirmLeaveGroup(conversation.id)" class="dropdown-item text-red-500">
                 <i class="fa-regular fa-square-minus"></i> Leave group
               </button>
             </div>
@@ -400,6 +419,7 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
       :group-id="selectedGroupId"
       @close="closeSetGroupPhotoForm"
       @photo-updated="handleGroupPhotoUpdated"
+      @click.stop
     />
     <AddUserToGroupForm
       v-if="showAddUserToGroupForm"
@@ -407,6 +427,7 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
       :group-id="selectedGroupId"
       @close="closeAddUserToGroupForm"
       @user-added="handleUserAdded"
+      @click.stop
     />
     <SetGroupNameForm
       v-if="isSetGroupNameFormOpen"
@@ -415,6 +436,7 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
       :current-group-name="getGroupName(selectedGroupId)"
       @close="closeSetGroupNameForm"
       @name-updated="handleGroupNameUpdated"
+      @click.stop
     />
     <LeaveGroupModal
       :is-open="showLeaveGroupConfirmation"
@@ -424,6 +446,7 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
       cancel-text="Cancel"
       @confirm="leaveGroup"
       @cancel="cancelLeaveGroup"
+      @click.stop
     />
   </div>
 </template>
