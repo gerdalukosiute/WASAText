@@ -23,7 +23,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['close', 'messageSent']);
+const emit = defineEmits(['close', 'messageSent', 'messageReplied']);
 
 const messages = ref([]);
 
@@ -93,7 +93,6 @@ const fetchConversationDetails = async () => {
           console.log(`Processed photo content: ${msg.content} -> ${processedContent}`);
         }
 
-        // Map reactions to comments format for backward compatibility
         const comments = [];
         if (msg.reactions && Array.isArray(msg.reactions)) {
           msg.reactions.forEach(reaction => {
@@ -116,7 +115,8 @@ const fetchConversationDetails = async () => {
           sender: msg.sender.userId,
           senderName: msg.sender.username,
           comments: comments,
-          isForwarded: msg.isForwarded || false 
+          isForwarded: msg.isForwarded || false,
+          parentMessageId: msg.parentMessageId || null
         };
       })
 
@@ -412,8 +412,19 @@ const handleMessageTouchEnd = () => {
   }
 };
 
-const handleMessageDeleted = (messageId) => {
-  messages.value = messages.value.filter(message => message.id !== messageId);
+const handleMessageDeleted = (data) => {
+  // Check if data is a string (old format) or an object (new format)
+  if (typeof data === 'string' || !data.messageId) {
+    const messageId = typeof data === 'string' ? data : data.messageId;
+    messages.value = messages.value.filter(message => message.id !== messageId);
+  } else {
+    // New format - complete deleted message data
+    console.log('Message deleted:', data);
+    
+    messages.value = messages.value.filter(message => message.id !== data.messageId);
+
+    emit('messageSent');
+  }
 };
 
 const handleMessageForwarded = (data) => {
@@ -458,6 +469,19 @@ const handleStatusUpdate = ({ messageId, status }) => {
   if (messageIndex !== -1) {
     messages.value[messageIndex].status = status;
   }
+};
+
+const handleMessageReplied = (data) => {
+  console.log('Message replied:', data);
+  
+  fetchConversationDetails();
+  
+  emit('messageSent');
+};
+
+const getParentMessage = (parentId) => {
+  if (!parentId) return null;
+  return messages.value.find(m => m.id === parentId);
 };
 
 onMounted(() => {
@@ -507,7 +531,15 @@ watch(messages, () => {
         <div v-for="(message, index) in messages" 
         :key="message.id" 
         class="message-container" 
-        :class="{'sent': message.sender === currentUserId, 'received': message.sender !== currentUserId}">
+        :class="{'sent': message.sender === currentUserId, 'received': message.sender !== currentUserId, 'reply-message': message.parentMessageId}">
+        <!-- Display parent message preview for replies -->
+        <div v-if="message.parentMessageId && getParentMessage(message.parentMessageId)" class="parent-message-preview">
+          <div class="parent-message-line"></div>
+            <div class="parent-message-content">
+              <span class="parent-sender">{{ getParentMessage(message.parentMessageId).senderName }}</span>
+                <p class="parent-text">{{ getParentMessage(message.parentMessageId).content }}</p>
+            </div>
+          </div>
           <div class="message-header">
             <span class="sender-name">{{ message.senderName }}</span>
             <span v-if="message.icon" class="message-icon">{{ message.icon }}</span>
@@ -515,6 +547,7 @@ watch(messages, () => {
           <div class="message-content-wrapper">
             <ForwardDeleteForm 
               :messageId="message.id"
+              :senderId="message.sender"
               @messageDeleted="handleMessageDeleted"
               @messageForwarded="handleMessageForwarded"
               @toggleReactionBar="toggleReactionBar"
@@ -911,5 +944,51 @@ watch(messages, () => {
 
 .reaction-shortcut:empty {
   display: none;
+}
+
+.reply-message {
+  margin-top: 8px;
+}
+
+.parent-message-preview {
+  background-color: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  position: relative;
+  border-left: 3px solid #4a90e2;
+}
+
+.parent-message-line {
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  background-color: #4a90e2;
+}
+
+.parent-sender {
+  font-weight: 600;
+  color: #4a90e2;
+  margin-right: 4px;
+}
+
+.parent-text {
+  color: #64748b;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.sent .parent-message-preview {
+  border-left-color: #3183e0;
+}
+
+.received .parent-message-preview {
+  border-left-color: #94a3b8;
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import api from '@/services/axios.js';
 import { onMounted, onUnmounted } from 'vue';
 
@@ -7,10 +7,26 @@ const props = defineProps({
   messageId: {
     type: String,
     required: true
-  }
+  },
+  senderId: {
+    type: String,
+    required: false,
+    default: ''
+  },
+  conversationId: {
+    type: String,
+    required: true
+  },
 });
 
-const emit = defineEmits(['messageDeleted', 'messageForwarded', 'toggleReactionBar']);
+console.log('ForwardDeleteForm props:', {
+  messageId: props.messageId,
+  senderId: props.senderId,
+  conversationId: props.conversationId
+});
+
+
+const emit = defineEmits(['messageDeleted', 'messageForwarded', 'toggleReactionBar', 'messageReplied']);
 
 const showPopup = ref(false);
 const showForwardDialog = ref(false);
@@ -21,6 +37,13 @@ const selectedConversation = ref('');
 const loading = ref(false);
 const error = ref(null);
 const popupRef = ref(null);
+const showReplyDialog = ref(false);
+const replyMessage = ref('');
+
+const currentUserId = ref(localStorage.getItem('userId'));
+const isCurrentUserSender = computed(() => {
+  return props.senderId === currentUserId.value;
+})
 
 const handleClick = () => {
   if (clickTimer.value === null) {
@@ -41,78 +64,6 @@ const closeForwardDialog = () => {
   showForwardDialog.value = false;
   selectedConversation.value = '';
 };
-
-/*old
-const fetchConversations = async () => {
-  loading.value = true;
-  error.value = null;
-  try {
-    const userId = localStorage.getItem('userId');
-    if (!userId) {
-      throw new Error('User not authenticated');
-    }
-
-    const response = await api.get('/conversations', {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-ID': userId
-      }
-    });
-
-    if (!Array.isArray(response.data)) {
-      throw new Error('Invalid response format. Expected an array.');
-    }
-
-    conversations.value = response.data.map(conv => ({
-      id: conv.conversationId,
-      title: conv.title || (conv.isGroup ? 'Unnamed Group' : 'Direct Message')
-    }));
-
-  } catch (err) {
-    console.error('Error fetching conversations:', err);
-    error.value = 'Failed to load conversations. Please try again.';
-  } finally {
-    loading.value = false;
-  }
-};
-*/
-
-/* old
-const handleForward = async () => {
-  try {
-    const userId = localStorage.getItem('userId');
-    if (!userId) {
-      throw new Error('User not authenticated');
-    }
-
-    if (!selectedConversation.value) {
-      alert('Please select a conversation to forward the message to.');
-      return;
-    }
-
-    const response = await api.post(`/messages/${props.messageId}/forward`, {
-      originalMessageId: props.messageId,
-      targetConversationId: selectedConversation.value
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-ID': userId
-      }
-    });
-
-    console.log('Message forwarded:', response.data);
-    emit('messageForwarded', props.messageId);
-    closeForwardDialog();
-  } catch (error) {
-    console.error('Error forwarding message:', error);
-    if (error.response && error.response.data && error.response.data.error) {
-      alert(`Failed to forward message: ${error.response.data.error}`);
-    } else {
-      alert('Failed to forward message. Please try again.');
-    }
-  }
-};
-*/
 
 const fetchConversations = async () => {
   loading.value = true;
@@ -224,10 +175,78 @@ const handleDelete = async () => {
     });
 
     console.log('Message deleted:', response.data);
-    emit('messageDeleted', props.messageId);
+    
+    emit('messageDeleted', {
+      messageId: response.data.messageId,
+      user: response.data.user,
+      deletedAt: response.data.deletedAt,
+      conversationId: response.data.conversationId
+    });
+    
     showPopup.value = false;
   } catch (error) {
     console.error('Error deleting message:', error);
+    if (error.response && error.response.data && error.response.data.error) {
+      alert(`Failed to delete message: ${error.response.data.error}`);
+    } else {
+      alert('Failed to delete message. Please try again.');
+    }
+  }
+};
+
+const openReplyDialog = () => {
+  showPopup.value = false;
+  showReplyDialog.value = true;
+};
+
+const closeReplyDialog = () => {
+  showReplyDialog.value = false;
+  replyMessage.value = '';
+};
+
+const handleReply = async () => {
+  try {
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
+
+    if (!replyMessage.value.trim()) {
+      alert('Please enter a message to reply with.');
+      return;
+    }
+
+    const response = await api.post(`/conversations/${props.conversationId}/messages`, {
+      content: replyMessage.value,
+      type: 'text',
+      parentMessageId: props.messageId
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': userId
+      }
+    });
+
+    console.log('Message replied:', response.data);
+    
+    // Emit the reply message data to the parent component
+    emit('messageReplied', {
+      messageId: response.data.messageId,
+      parentMessageId: response.data.parentMessageId,
+      content: response.data.content,
+      type: response.data.type,
+      timestamp: response.data.timestamp,
+      sender: response.data.sender
+    });
+    
+    closeReplyDialog();
+  } catch (error) {
+    console.error('Error replying to message:', error);
+    if (error.response && error.response.data && error.response.data.error) {
+      alert(`Failed to reply to message: ${error.response.data.error}`);
+    } else {
+      alert('Failed to reply to message. Please try again.');
+    }
   }
 };
 
@@ -276,8 +295,11 @@ defineExpose({
       <button @click="openForwardDialog" class="popup-button forward-button">
         <i class="fa-regular fa-share-from-square"></i> Forward
       </button>
-      <button @click="handleDelete" class="popup-button delete-button">
+      <button v-if="isCurrentUserSender" @click="handleDelete" class="popup-button delete-button">
         <i class="fa-regular fa-trash-can"></i> Delete
+      </button>
+      <button @click="openReplyDialog" class="popup-button reply-button">
+        <i class="fa-regular fa-square-caret-right"></i> Reply
       </button>
     </div>
     <div v-if="showForwardDialog" class="modal">
@@ -310,6 +332,37 @@ defineExpose({
               :disabled="!selectedConversation"
             >
               Forward
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Reply Dialog (new) -->
+    <div v-if="showReplyDialog" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Reply to Message</h2>
+          <button @click="closeReplyDialog" class="close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="reply-message">Your Reply</label>
+            <textarea
+              id="reply-message"
+              v-model="replyMessage"
+              class="form-input reply-textarea"
+              placeholder="Type your reply..."
+              rows="4"
+            ></textarea>
+          </div>
+          <div class="form-actions">
+            <button @click="closeReplyDialog" class="cancel-btn">Cancel</button>
+            <button
+              @click="handleReply"
+              class="create-btn"
+              :disabled="!replyMessage.trim()"
+            >
+              Reply
             </button>
           </div>
         </div>
@@ -351,6 +404,10 @@ defineExpose({
 }
 
 .delete-button {
+  color: #474747;
+}
+
+.reply-button {
   color: #474747;
 }
 
@@ -489,5 +546,14 @@ defineExpose({
   text-align: center;
   color: #666;
   font-style: italic;
+}
+
+.reply-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.reply-button i {
+  margin-right: 8px;
 }
 </style>
