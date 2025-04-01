@@ -2,7 +2,7 @@
 FROM node:lts as builder
 # Copy Vue.js code
 WORKDIR /app
-COPY . .
+COPY ./webui .
 ### Build Vue.js into plain HTML/CSS/JS
 RUN yarn run build-prod
 ### Create final container
