@@ -608,6 +608,14 @@ paths:
                                 example: "reaction"
                                 minLength: 5
                                 maxLength: 8
+                              interactionId:
+                                type: string
+                                description: |
+                                  Unique identifier of the newly added reaction 
+                                pattern: '^[a-zA-Z0-9_-]{10,30}$'
+                                minLength: 10
+                                maxLength: 30
+                                example: "int67890123"
                               content:
                                 type: string
                                 description: |

@@ -51,6 +51,7 @@ type SenderResponse struct {
 }
 
 type ReactionResponse struct {
+	InteractionID string `json:"interactionId"`
     Username    string `json:"username"`
     Interaction string `json:"interaction"`
     Content     string `json:"content"`
@@ -968,6 +969,7 @@ func convertReactions(dbComments []database.Comment) []ReactionResponse {
 	reactions := make([]ReactionResponse, len(dbComments))
 	for i, c := range dbComments {
 		reactions[i] = ReactionResponse{
+			InteractionID: c.ID,
 			Username:    c.Username,
 			Interaction: "reaction",
 			Content:     c.Content,

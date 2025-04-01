@@ -82,7 +82,14 @@ const handleEmojiClick = async (emoji) => {
           'X-User-ID': currentUserId.value
         }
       });
-      const newComment = response.data;
+      const newComment = {
+        id: response.data.interactionId,
+        userId: response.data.user.userId,
+        username: response.data.user.username,
+        content: response.data.content,
+        timestamp: response.data.timestamp
+
+      }
       let updatedComments = props.comments ? [...props.comments] : [];
       if (userReaction.value) {
         // Remove existing reaction
@@ -116,9 +123,9 @@ const handleEmojiClick = async (emoji) => {
       </button>
     </div>
     <div v-if="showReactionDetails" class="reaction-details">
-      <div v-for="reaction in uniqueReactions" :key="reaction.id" class="reaction-detail">
+      <div v-for="reaction in uniqueReactions" :key="reaction.interactionId" class="reaction-detail">
         {{ reaction.content }} 
-        <span v-for="user in getUsersForReaction(reaction.content)" :key="user.id" class="reaction-user">
+        <span v-for="user in getUsersForReaction(reaction.content)" :key="user.userId" class="reaction-user">
           {{ user.username }}
         </span>
       </div>

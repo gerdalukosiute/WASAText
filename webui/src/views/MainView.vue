@@ -7,6 +7,10 @@ import SetProfilePhotoForm from '@/components/SetProfilePhotoForm.vue';
 import MediaImage from '@/components/MediaImage.vue';
 import UpdateUsernameForm from '@/components/UpdateUsernameForm.vue';
 import { cleanupAllMedia } from '@/services/media-service.js';
+import { useRouter } from 'vue-router';
+import api from '@/services/axios.js';
+
+const router = useRouter();
 
 const username = ref('');
 const showDropdown = ref(false);
@@ -25,6 +29,7 @@ const fetchUserData = async (userId) => {
       userPhotoId.value = photoId; 
     } else {
       userPhotoId.value = '';
+      await fetchUserPhotoFromUsers(userId);
     }
   } catch (error) {
     console.error('Error fetching user data:', error);
@@ -79,9 +84,44 @@ const handleConversationCreated = async (newConversation) => {
 
 const fetchConversations = async () => {
   listKey.value += 1;
-  // If we have a reference to the conversation list component, call its fetchConversations method
   if (conversationListRef.value && typeof conversationListRef.value.fetchConversations === 'function') {
     await conversationListRef.value.fetchConversations();
+
+    const userId = localStorage.getItem('userId');
+    if (userId && !userPhotoId.value) {
+      await fetchUserPhotoFromUsers(userId);
+    }
+  }
+};
+
+const logout = () => {
+  // localStorage.removeItem('userId');
+  // localStorage.removeItem('username');
+  // localStorage.removeItem('userPhotoId');
+  localStorage.clear();
+  router.push('/');
+}
+
+const fetchUserPhotoFromUsers = async (userId) => {
+  try {
+    const currentUsername = localStorage.getItem('username');
+    if (!currentUsername) return;
+    
+    const response = await api.get(`/users?search=${encodeURIComponent(currentUsername)}`, {
+      headers: {
+        'X-User-ID': userId
+      }
+    });
+    
+    if (response.data && response.data.users && Array.isArray(response.data.users)) {
+      const currentUser = response.data.users.find(user => user.userId === userId);
+      if (currentUser && currentUser.profilePhotoId) {
+        userPhotoId.value = currentUser.profilePhotoId;
+        localStorage.setItem(`userPhotoId_${userId}`, currentUser.profilePhotoId);
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching user photo from users endpoint:', error);
   }
 };
 
@@ -121,6 +161,10 @@ onUnmounted(() => {
               @usernameUpdated="updateUsername" 
               @close="closeDropdown"
             />
+            <a href="#" @click.prevent="logout">
+              <i class="fa-regular fa-rectangle-xmark"></i>
+              Logout
+            </a>
           </div>
         </div>
       </div>

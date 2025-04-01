@@ -88,7 +88,21 @@ const fetchConversationDetails = async () => {
           processedContent = processedContent.substring(7); // '/media/'.length === 7
           console.log(`Processed photo content: ${msg.content} -> ${processedContent}`);
         }
-        
+
+        // Map reactions to comments format for backward compatibility
+        const comments = [];
+        if (msg.reactions && Array.isArray(msg.reactions)) {
+          msg.reactions.forEach(reaction => {
+            comments.push({
+              id: reaction.interactionId,
+              userId: reaction.userId || currentUserId.value, // Use userId if available or fallback to current user
+              username: reaction.username,
+              content: reaction.content,
+              timestamp: reaction.timestamp
+            });
+          });
+        }
+
         return {
           id: msg.messageId,
           content: processedContent,
@@ -97,7 +111,7 @@ const fetchConversationDetails = async () => {
           status: msg.status,
           sender: msg.sender.userId,
           senderName: msg.sender.username,
-          comments: msg.comments || []
+          comments: comments 
         };
       })
 
