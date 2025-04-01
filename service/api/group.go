@@ -54,7 +54,7 @@ func (rt *_router) handleAddToGroup(w http.ResponseWriter, r *http.Request, ps h
 			"isGroupNotFound": errors.Is(err, database.ErrGroupNotFound),
 			"isUnauthorized":  errors.Is(err, database.ErrUnauthorized),
 		}).Error("Failed to add users to group")
-		
+
 		// Use errors.Is for proper error checking
 		if errors.Is(err, database.ErrGroupNotFound) {
 			ctx.Logger.Warn("Attempt to add users to non-existent group")
@@ -73,27 +73,27 @@ func (rt *_router) handleAddToGroup(w http.ResponseWriter, r *http.Request, ps h
 
 	// Create response according to API documentation
 	response := struct {
-		GroupName         string `json:"groupName"`
-		GroupID           string `json:"groupId"`
-		AddedUsers        []struct {
+		GroupName  string `json:"groupName"`
+		GroupID    string `json:"groupId"`
+		AddedUsers []struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
 		} `json:"addedUsers"`
-		FailedUsers       []string `json:"failedUsers"`
+		FailedUsers        []string `json:"failedUsers"`
 		UpdatedMemberCount int      `json:"updatedMemberCount"`
-		AddedBy           struct {
+		AddedBy            struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
 		} `json:"addedBy"`
-		Timestamp         string   `json:"timestamp"`
+		Timestamp string `json:"timestamp"`
 	}{
-		GroupName:         result.GroupName,
-		GroupID:           result.GroupID,
-		AddedUsers:        make([]struct {
+		GroupName: result.GroupName,
+		GroupID:   result.GroupID,
+		AddedUsers: make([]struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
 		}, len(result.AddedUsers)),
-		FailedUsers:       result.FailedUsers,
+		FailedUsers:        result.FailedUsers,
 		UpdatedMemberCount: result.UpdatedMemberCount,
 		AddedBy: struct {
 			Username string `json:"username"`
@@ -102,7 +102,7 @@ func (rt *_router) handleAddToGroup(w http.ResponseWriter, r *http.Request, ps h
 			Username: result.AddedBy.Name,
 			UserID:   result.AddedBy.ID,
 		},
-		Timestamp:         result.Timestamp.Format(time.RFC3339),
+		Timestamp: result.Timestamp.Format(time.RFC3339),
 	}
 
 	// Copy added users to response
@@ -135,10 +135,10 @@ func (rt *_router) handleLeaveGroup(w http.ResponseWriter, r *http.Request, ps h
 	username, isGroupDeleted, remainingMemberCount, err := rt.db.LeaveGroup(groupID, userID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to leave group")
-		
+
 		var statusCode int
 		var errorMessage string
-		
+
 		if errors.Is(err, database.ErrUnauthorized) {
 			statusCode = http.StatusForbidden
 			errorMessage = "You are not a member of this group"
@@ -149,23 +149,23 @@ func (rt *_router) handleLeaveGroup(w http.ResponseWriter, r *http.Request, ps h
 			statusCode = http.StatusInternalServerError
 			errorMessage = ErrInternalServerMsg
 		}
-		
+
 		sendJSONError(w, errorMessage, statusCode)
 		return
 	}
 
 	// Create the response according to the API documentation
 	response := struct {
-		GroupID              string    `json:"groupId"`
-		User                 struct {
+		GroupID string `json:"groupId"`
+		User    struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
 		} `json:"user"`
-		IsGroupDeleted       bool      `json:"isGroupDeleted"`
-		RemainingMemberCount int       `json:"remainingMemberCount"`
-		LeftAt               string    `json:"leftAt"`
+		IsGroupDeleted       bool   `json:"isGroupDeleted"`
+		RemainingMemberCount int    `json:"remainingMemberCount"`
+		LeftAt               string `json:"leftAt"`
 	}{
-		GroupID:              groupID,
+		GroupID: groupID,
 		User: struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
@@ -215,10 +215,10 @@ func (rt *_router) handleSetGroupName(w http.ResponseWriter, r *http.Request, ps
 	oldGroupName, newGroupName, memberCount, err := rt.db.SetGroupName(groupID, userID, req.GroupName)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to set group name")
-		
+
 		var statusCode int
 		var errorMessage string
-		
+
 		if errors.Is(err, database.ErrUnauthorized) {
 			statusCode = http.StatusForbidden
 			errorMessage = "No permission to update"
@@ -235,7 +235,7 @@ func (rt *_router) handleSetGroupName(w http.ResponseWriter, r *http.Request, ps
 			statusCode = http.StatusInternalServerError
 			errorMessage = ErrInternalServerMsg
 		}
-		
+
 		sendJSONError(w, errorMessage, statusCode)
 		return
 	}
@@ -250,15 +250,15 @@ func (rt *_router) handleSetGroupName(w http.ResponseWriter, r *http.Request, ps
 
 	// Create the response according to the API documentation
 	response := struct {
-		GroupID      string    `json:"groupId"`
-		OldGroupName string    `json:"oldGroupName"`
-		NewGroupName string    `json:"newGroupName"`
+		GroupID      string `json:"groupId"`
+		OldGroupName string `json:"oldGroupName"`
+		NewGroupName string `json:"newGroupName"`
 		UpdatedBy    struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
 		} `json:"updatedBy"`
-		UpdatedAt    string    `json:"updatedAt"`
-		MemberCount  int       `json:"memberCount"`
+		UpdatedAt   string `json:"updatedAt"`
+		MemberCount int    `json:"memberCount"`
 	}{
 		GroupID:      groupID,
 		OldGroupName: oldGroupName,
@@ -270,8 +270,8 @@ func (rt *_router) handleSetGroupName(w http.ResponseWriter, r *http.Request, ps
 			Username: username,
 			UserID:   userID,
 		},
-		UpdatedAt:    time.Now().Format(time.RFC3339),
-		MemberCount:  memberCount,
+		UpdatedAt:   time.Now().Format(time.RFC3339),
+		MemberCount: memberCount,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -343,10 +343,10 @@ func (rt *_router) handleSetGroupPhoto(w http.ResponseWriter, r *http.Request, p
 	oldPhotoID, newPhotoID, err := rt.db.SetGroupPhoto(groupID, userID, fileBytes, contentType)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to set group photo")
-		
+
 		var statusCode int
 		var errorMessage string
-		
+
 		if errors.Is(err, database.ErrUnauthorized) {
 			statusCode = http.StatusForbidden
 			errorMessage = "No permission to update photo"
@@ -360,7 +360,7 @@ func (rt *_router) handleSetGroupPhoto(w http.ResponseWriter, r *http.Request, p
 			statusCode = http.StatusInternalServerError
 			errorMessage = ErrInternalServerMsg
 		}
-		
+
 		sendJSONError(w, errorMessage, statusCode)
 		return
 	}
@@ -375,14 +375,14 @@ func (rt *_router) handleSetGroupPhoto(w http.ResponseWriter, r *http.Request, p
 
 	// Create the response according to the API documentation
 	response := struct {
-		GroupID    string    `json:"groupId"`
-		OldPhotoID string    `json:"oldPhotoId"`
-		NewPhotoID string    `json:"newPhotoId"`
+		GroupID    string `json:"groupId"`
+		OldPhotoID string `json:"oldPhotoId"`
+		NewPhotoID string `json:"newPhotoId"`
 		UpdatedBy  struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
 		} `json:"updatedBy"`
-		UpdatedAt  string    `json:"updatedAt"`
+		UpdatedAt string `json:"updatedAt"`
 	}{
 		GroupID:    groupID,
 		OldPhotoID: oldPhotoID,
@@ -394,7 +394,7 @@ func (rt *_router) handleSetGroupPhoto(w http.ResponseWriter, r *http.Request, p
 			Username: username,
 			UserID:   userID,
 		},
-		UpdatedAt:  time.Now().Format(time.RFC3339),
+		UpdatedAt: time.Now().Format(time.RFC3339),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

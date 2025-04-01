@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 	"math/rand"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -21,40 +21,40 @@ type AppDatabase interface {
 	GetUserIDByName(name string) (string, error)
 	GetExistingConversation(userID1, userID2 string) (string, bool, error)
 	GenerateConversationID() (string, error)
-	AddMessage(conversationID, senderID, messageType, content string, contentType string, parentMessageID *string) (string, error)  
-	ValidateParentMessage(messageID, conversationID string) (bool, error) 
+	AddMessage(conversationID, senderID, messageType, content string, contentType string, parentMessageID *string) (string, error)
+	ValidateParentMessage(messageID, conversationID string) (bool, error)
 	IsUserInConversation(userID, conversationID string) (bool, error)
 	GetUserNameByID(userID string) (string, error)
-	GenerateMessageID() (string, error) 
-    StoreMediaFile(fileData []byte, mimeType string) (string, error)
-    GetMediaFile(mediaID string) ([]byte, string, error) 
+	GenerateMessageID() (string, error)
+	StoreMediaFile(fileData []byte, mimeType string) (string, error)
+	GetMediaFile(mediaID string) ([]byte, string, error)
 	GetConversationDetails(conversationID, userID string) (*ConversationDetails, error)
-	GetComments(messageID string) ([]Comment, error) 
+	GetComments(messageID string) ([]Comment, error)
 	ForwardMessage(originalMessageID, targetConversationID, userID string) (*ForwardedMessage, error)
-	IsUserAuthorized(userID string, messageID string) (bool, error) 
+	IsUserAuthorized(userID string, messageID string) (bool, error)
 	ConversationExists(conversationID string) (bool, error)
 	DeleteMessage(messageID, userID string) (*Message, string, error)
-	AddComment(messageID, userID, content string) (*Comment, error) 
-	DeleteComment(messageID, commentID, userID string) error 
+	AddComment(messageID, userID, content string) (*Comment, error)
+	DeleteComment(messageID, commentID, userID string) error
 	AddUsersToGroup(groupID, adderID string, usernames []string) (*GroupAddResult, error)
 	LeaveGroup(groupID string, userID string) (username string, isGroupDeleted bool, remainingMemberCount int, err error)
-	IsGroupMember(groupID, userID string) (bool, error) 
-	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, memberCount int, err error) 
-	SetGroupPhoto(groupID string, userID string, fileData []byte, contentType string) (oldPhotoID string, newPhotoID string, err error) 
+	IsGroupMember(groupID, userID string) (bool, error)
+	SetGroupName(groupID string, userID string, newName string) (oldName string, updatedName string, memberCount int, err error)
+	SetGroupPhoto(groupID string, userID string, fileData []byte, contentType string) (oldPhotoID string, newPhotoID string, err error)
 	UserExists(userID string) (bool, error)
 	UpdateMessageStatus(messageID, userID, newStatus string) (*MessageStatusUpdate, error)
 	GetMessageByID(messageID string) (*Message, error)
 	IsValidUserID(userID string) bool
-	IsValidImageType(contentType string) bool 
-	GeneratePhotoID(userID string) string 
+	IsValidImageType(contentType string) bool
+	GeneratePhotoID(userID string) string
 	Ping() error
 }
 
 // User represents a user in the database
 type User struct {
-	ID       string
-	Name     string
-	PhotoID  string
+	ID      string
+	Name    string
+	PhotoID string
 }
 
 // Group structure representation
@@ -65,53 +65,51 @@ type Group struct {
 
 // ConversationDetails represents the full details of a conversation
 type ConversationDetails struct {
-   ID           string
-   Title        string
-   IsGroup      bool
-   CreatedAt    time.Time        
-   ProfilePhoto string           
-   Participants []Participant
-   Messages     []Message
+	ID           string
+	Title        string
+	IsGroup      bool
+	CreatedAt    time.Time
+	ProfilePhoto string
+	Participants []Participant
+	Messages     []Message
 }
-
 
 // Participant represents a user participating in a conversation
 type Participant struct {
-    ID      string
-    Name    string
-    PhotoID string
+	ID      string
+	Name    string
+	PhotoID string
 }
 
 // Message struct represents a message
 type Message struct {
-	ID               string
-	SenderID         string
-	Sender           string
-	Type             string
-	Content          string
-	ContentType      string
-	Icon             string
-	Timestamp        time.Time
-	Status           string
-	Comments         []Comment
-	ParentMessageID  *string
-	IsForwarded      bool
-	OriginalSender   *User
+	ID                string
+	SenderID          string
+	Sender            string
+	Type              string
+	Content           string
+	ContentType       string
+	Icon              string
+	Timestamp         time.Time
+	Status            string
+	Comments          []Comment
+	ParentMessageID   *string
+	IsForwarded       bool
+	OriginalSender    *User
 	OriginalTimestamp time.Time
 }
 
-
 // New struct for forwarded message details
 type ForwardedMessage struct {
-	ID               string
-	SenderID         string
-	Sender           string
-	Type             string
-	Content          string
-	ContentType      string
-	Timestamp        time.Time
-	Status           string
-	OriginalSender   User
+	ID                string
+	SenderID          string
+	Sender            string
+	Type              string
+	Content           string
+	ContentType       string
+	Timestamp         time.Time
+	Status            string
+	OriginalSender    User
 	OriginalTimestamp time.Time
 }
 
@@ -149,33 +147,33 @@ type MessageStatusUpdate struct {
 }
 
 type GroupAddResult struct {
-    GroupID            string
-    GroupName          string
-    AddedUsers         []struct {
-        Username string
-        UserID   string
-    }
-    FailedUsers        []string
-    UpdatedMemberCount int
-    AddedBy            User  
-    Timestamp          time.Time
+	GroupID    string
+	GroupName  string
+	AddedUsers []struct {
+		Username string
+		UserID   string
+	}
+	FailedUsers        []string
+	UpdatedMemberCount int
+	AddedBy            User
+	Timestamp          time.Time
 }
 
 // Error definitions
 var (
-	ErrUserNotFound         = errors.New("user not found") 
-	ErrDuplicateUsername    = errors.New("username already taken") 
-    ErrUnauthorized         = errors.New("user unauthorized")
+	ErrUserNotFound         = errors.New("user not found")
+	ErrDuplicateUsername    = errors.New("username already taken")
+	ErrUnauthorized         = errors.New("user unauthorized")
 	ErrConversationNotFound = errors.New("conversation not found")
 	ErrMessageNotFound      = errors.New("message not found")
 	ErrGroupNotFound        = errors.New("group not found")
 	ErrInvalidGroupName     = errors.New("invalid group name")
 	ErrUserAlreadyInGroup   = errors.New("user is already a member of the group")
-	ErrInvalidNameLength = errors.New("invalid name length")
-	ErrInvalidNameFormat = errors.New("invalid name format")
-	ErrNameAlreadyTaken  = errors.New("name already taken")
-	ErrMediaNotFound = errors.New("media not found")
-	ErrInternalServer = errors.New("internal server error")
+	ErrInvalidNameLength    = errors.New("invalid name length")
+	ErrInvalidNameFormat    = errors.New("invalid name format")
+	ErrNameAlreadyTaken     = errors.New("name already taken")
+	ErrMediaNotFound        = errors.New("media not found")
+	ErrInternalServer       = errors.New("internal server error")
 )
 
 type appdbimpl struct {
@@ -190,8 +188,7 @@ func New(db *sql.DB) (AppDatabase, error) {
 	}
 
 	// Seed the random number generator
-    rand.Seed(time.Now().UnixNano())
-
+	rand.Seed(time.Now().UnixNano())
 
 	// Check if tables exist. If not, create them.
 	if err := createTables(db); err != nil {

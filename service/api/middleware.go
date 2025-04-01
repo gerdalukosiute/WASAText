@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/julienschmidt/httprouter"
 )

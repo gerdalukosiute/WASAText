@@ -2,11 +2,11 @@ package database
 
 import (
 	"database/sql"
-	"fmt"
-	"time"
 	"errors"
-	"math/rand"
+	"fmt"
 	"log"
+	"math/rand"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -109,12 +109,12 @@ func (db *appdbimpl) GetUserConversations(userID string) ([]Conversation, int, e
 		if displayTitle.Valid {
 			conv.Title = displayTitle.String
 		}
-		
+
 		// Set the profile photo
 		if displayPhoto.Valid {
 			conv.ProfilePhoto = &displayPhoto.String
 		}
-		
+
 		// Set the creation time
 		if conversationCreatedAt.Valid {
 			conv.CreatedAt = conversationCreatedAt.Time
@@ -123,25 +123,25 @@ func (db *appdbimpl) GetUserConversations(userID string) ([]Conversation, int, e
 		// Set the last message details
 		var msgType, msgContent string
 		var msgTimestamp time.Time
-		
+
 		if messageType.Valid {
 			msgType = messageType.String
 		} else {
 			msgType = ""
 		}
-		
+
 		if messageContent.Valid {
 			msgContent = messageContent.String
 		} else {
 			msgContent = ""
 		}
-		
+
 		if messageTimestamp.Valid {
 			msgTimestamp = messageTimestamp.Time
 		} else {
-			msgTimestamp = time.Time{} 
+			msgTimestamp = time.Time{}
 		}
-		
+
 		conv.LastMessage = struct {
 			Type      string
 			Content   string
@@ -195,7 +195,7 @@ func (db *appdbimpl) StartConversation(initiatorID string, recipientIDs []string
 			}
 			return existingID, nil
 		}
-		
+
 		// For 1:1 conversations, if title is not provided, use the recipient's name
 		if title == "" {
 			var recipientName string
@@ -281,15 +281,15 @@ func (db *appdbimpl) StartConversation(initiatorID string, recipientIDs []string
 
 // GetUserIDByName retrieves a user's ID by their name, returns an error if the user doesn't exist
 func (db *appdbimpl) GetUserIDByName(name string) (string, error) {
-    var userID string
-    err := db.c.QueryRow("SELECT id FROM users WHERE name = ?", name).Scan(&userID)
-    if err != nil {
-        if errors.Is(err, sql.ErrNoRows) {
-            return "", fmt.Errorf("user with name %s not found", name)
-        }
-        return "", fmt.Errorf("error querying user: %w", err)
-    }
-    return userID, nil
+	var userID string
+	err := db.c.QueryRow("SELECT id FROM users WHERE name = ?", name).Scan(&userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("user with name %s not found", name)
+		}
+		return "", fmt.Errorf("error querying user: %w", err)
+	}
+	return userID, nil
 }
 
 // Gets an existing conversation in creation
@@ -305,10 +305,10 @@ func (db *appdbimpl) GetExistingConversation(userID1, userID2 string) (string, b
 	AND uc2.user_id = ?
 	LIMIT 1
 	`
-	
+
 	var conversationID string
 	err := db.c.QueryRow(query, userID1, userID2).Scan(&conversationID)
-	
+
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// No existing conversation found
@@ -316,7 +316,7 @@ func (db *appdbimpl) GetExistingConversation(userID1, userID2 string) (string, b
 		}
 		return "", false, fmt.Errorf("error checking for existing conversation: %w", err)
 	}
-	
+
 	return conversationID, true, nil
 }
 
@@ -328,20 +328,20 @@ func (db *appdbimpl) GenerateConversationID() (string, error) {
 		// This will result in IDs between 7 and 10 characters long ("chat" + 3-6 digits)
 		randomNum := 100 + rand.Intn(999900)
 		candidateID := fmt.Sprintf("chat%d", randomNum)
-		
+
 		// Check if this ID already exists
 		var exists bool
 		err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM conversations WHERE id = ?)", candidateID).Scan(&exists)
 		if err != nil {
 			return "", fmt.Errorf("error checking conversation ID existence: %w", err)
 		}
-		
+
 		// If the ID doesn't exist, return it
 		if !exists {
 			return candidateID, nil
 		}
 	}
-	
+
 	// If it couldn't generate a unique ID after 10 attempts, return an error
 	return "", fmt.Errorf("failed to generate a unique conversation ID after multiple attempts")
 }
@@ -392,15 +392,15 @@ func (db *appdbimpl) AddMessage(conversationID, senderID, messageType, content s
 			FROM messages
 			WHERE id = ?
 		`, *parentMessageID, *parentMessageID).Scan(&parentExists, &parentConversationID)
-		
+
 		if err != nil {
 			return "", fmt.Errorf("error checking parent message: %w", err)
 		}
-		
+
 		if !parentExists {
 			return "", ErrMessageNotFound
 		}
-		
+
 		if parentConversationID != conversationID {
 			return "", fmt.Errorf("parent message is not in the same conversation")
 		}
@@ -420,7 +420,7 @@ func (db *appdbimpl) AddMessage(conversationID, senderID, messageType, content s
 	if err = tx.Commit(); err != nil {
 		return "", fmt.Errorf("error committing transaction: %w", err)
 	}
-	
+
 	// Set tx to nil to prevent rollback in defer function
 	tx = nil
 
@@ -432,22 +432,22 @@ func (db *appdbimpl) ValidateParentMessage(messageID, conversationID string) (bo
 	// Check if the message exists and is in the specified conversation
 	var exists bool
 	var msgConversationID string
-	
+
 	err := db.c.QueryRow(`
 		SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?),
 			   conversation_id
 		FROM messages
 		WHERE id = ?
 	`, messageID, messageID).Scan(&exists, &msgConversationID)
-	
+
 	if err != nil {
 		return false, fmt.Errorf("error checking message existence: %w", err)
 	}
-	
+
 	if !exists {
 		return false, nil
 	}
-	
+
 	// Check if the message is in the same conversation
 	return msgConversationID == conversationID, nil
 }
@@ -472,11 +472,11 @@ func (db *appdbimpl) IsUserInConversation(userID, conversationID string) (bool, 
 			WHERE conversation_id = ? AND user_id = ?
 		)
 	`, conversationID, userID).Scan(&isParticipant)
-	
+
 	if err != nil {
 		return false, fmt.Errorf("error checking user participation: %w", err)
 	}
-	
+
 	return isParticipant, nil
 }
 
@@ -501,20 +501,20 @@ func (db *appdbimpl) GenerateMessageID() (string, error) {
 		// This will result in IDs between 11 and 15 characters long ("msg" + 8-12 digits)
 		randomNum := 100000000 + rand.Intn(999999999999-100000000)
 		candidateID := fmt.Sprintf("msg%d", randomNum)
-		
+
 		// Check if this ID already exists
 		var exists bool
 		err := db.c.QueryRow("SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?)", candidateID).Scan(&exists)
 		if err != nil {
 			return "", fmt.Errorf("error checking message ID existence: %w", err)
 		}
-		
+
 		// If the ID doesn't exist, return it
 		if !exists {
 			return candidateID, nil
 		}
 	}
-	
+
 	// If we couldn't generate a unique ID after 10 attempts, return an error
 	return "", fmt.Errorf("failed to generate a unique message ID after multiple attempts")
 }
@@ -554,7 +554,7 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction: %w", err)
 	}
-	
+
 	// Ensure transaction is rolled back if an error occurs
 	defer func() {
 		if tx != nil {
@@ -576,7 +576,7 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 		Timestamp   time.Time
 		Status      string
 	}
-	
+
 	err = tx.QueryRow(`
 		SELECT m.id, m.sender_id, u.name, m.type, m.content, m.content_type, m.created_at, m.status
 		FROM messages m
@@ -592,7 +592,7 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 		&originalMessage.Timestamp,
 		&originalMessage.Status,
 	)
-	
+
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrMessageNotFound
@@ -615,7 +615,7 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 	if err != nil {
 		return nil, fmt.Errorf("error generating message ID: %w", err)
 	}
-	
+
 	// Current time for the forwarded timestamp
 	now := time.Now()
 
@@ -639,7 +639,7 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 		originalMessage.SenderID,
 		originalMessage.Timestamp,
 	)
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("error inserting forwarded message: %w", err)
 	}
@@ -648,19 +648,19 @@ func (db *appdbimpl) ForwardMessage(originalMessageID, targetConversationID, use
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("error committing transaction: %w", err)
 	}
-	
+
 	// Set tx to nil to prevent rollback in defer function
 	tx = nil
 
 	// Create the forwarded message response
 	forwardedMessage := &ForwardedMessage{
-		ID:               newMessageID,
-		SenderID:         userID,
-		Type:             originalMessage.Type,
-		Content:          originalMessage.Content,
-		ContentType:      originalMessage.ContentType,
-		Timestamp:        now,
-		Status:           "delivered",
+		ID:          newMessageID,
+		SenderID:    userID,
+		Type:        originalMessage.Type,
+		Content:     originalMessage.Content,
+		ContentType: originalMessage.ContentType,
+		Timestamp:   now,
+		Status:      "delivered",
 		OriginalSender: User{
 			ID:   originalMessage.SenderID,
 			Name: originalMessage.SenderName,
@@ -688,7 +688,7 @@ func (db *appdbimpl) IsUserAuthorized(userID string, messageID string) (bool, er
 	return count > 0, nil
 }
 
-// Checks if conversation exists 
+// Checks if conversation exists
 func (db *appdbimpl) ConversationExists(conversationID string) (bool, error) {
 	var count int
 	err := db.c.QueryRow("SELECT COUNT(*) FROM conversations WHERE id = ?", conversationID).Scan(&count)
@@ -705,7 +705,7 @@ func (db *appdbimpl) AddComment(messageID, userID, content string) (*Comment, er
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction: %w", err)
 	}
-	
+
 	// Ensure transaction is rolled back if an error occurs
 	defer func() {
 		if tx != nil {
@@ -740,7 +740,7 @@ func (db *appdbimpl) AddComment(messageID, userID, content string) (*Comment, er
 	if len(interactionID) > 30 {
 		interactionID = interactionID[:30]
 	}
-	
+
 	timestamp := time.Now()
 
 	// Check if the user has already reacted to this message
@@ -780,7 +780,7 @@ func (db *appdbimpl) AddComment(messageID, userID, content string) (*Comment, er
 	if err = tx.Commit(); err != nil {
 		return nil, fmt.Errorf("error committing transaction: %w", err)
 	}
-	
+
 	// Set tx to nil to prevent rollback in defer function
 	tx = nil
 
@@ -974,8 +974,8 @@ func (db *appdbimpl) UpdateMessageStatus(messageID, userID, newStatus string) (*
 
 	// Create and return the status update information
 	statusUpdate := &MessageStatusUpdate{
-		MessageID:      messageID,
-		Status:         overallStatus,
+		MessageID: messageID,
+		Status:    overallStatus,
 		UpdatedBy: User{
 			ID:   userID,
 			Name: username,
@@ -1083,7 +1083,7 @@ func (db *appdbimpl) GetMessageByID(messageID string) (*Message, error) {
 		WHERE m.id = ?
 	`
 	var msg Message
-	var icon sql.NullString 
+	var icon sql.NullString
 	err := db.c.QueryRow(query, messageID).Scan(
 		&msg.ID, &msg.SenderID, &msg.Sender, &msg.Type, &msg.Content, &icon, &msg.Timestamp, &msg.Status,
 	)
@@ -1138,7 +1138,7 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction: %w", err)
 	}
-	
+
 	// Ensure transaction is rolled back if an error occurs
 	defer func() {
 		if tx != nil {
@@ -1164,7 +1164,7 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 	var profilePhoto sql.NullString
 	var createdAt time.Time
 	var isGroup bool
-	
+
 	err = tx.QueryRow(`
 		SELECT id, title, is_group, profile_photo, created_at
 		FROM conversations
@@ -1176,14 +1176,14 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 		&profilePhoto,
 		&createdAt,
 	)
-	
+
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrConversationNotFound
 		}
 		return nil, fmt.Errorf("error fetching conversation details: %w", err)
 	}
-	
+
 	details.CreatedAt = createdAt
 	details.IsGroup = isGroup
 	if profilePhoto.Valid {
@@ -1192,8 +1192,8 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 
 	// For 1-on-1 convos use other participants name as title
 	if !isGroup {
-   		var otherUserName string
-   		err = tx.QueryRow(`
+		var otherUserName string
+		err = tx.QueryRow(`
      		SELECT u.name
      		FROM users u
      		JOIN user_conversations uc ON u.id = uc.user_id
@@ -1201,12 +1201,10 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
      		LIMIT 1
    		`, conversationID, userID).Scan(&otherUserName)
 
-
-   		if err == nil {
-     		details.Title = otherUserName
-   		}
- 	}
-
+		if err == nil {
+			details.Title = otherUserName
+		}
+	}
 
 	// Get participants
 	rows, err := tx.Query(`
@@ -1215,7 +1213,7 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 		JOIN user_conversations uc ON u.id = uc.user_id
 		WHERE uc.conversation_id = ?
 	`, conversationID)
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("error fetching participants: %w", err)
 	}
@@ -1225,18 +1223,18 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 	for rows.Next() {
 		var participant Participant
 		var photoID sql.NullString
-		
+
 		if err := rows.Scan(&participant.ID, &participant.Name, &photoID); err != nil {
 			return nil, fmt.Errorf("error scanning participant: %w", err)
 		}
-		
+
 		if photoID.Valid {
 			participant.PhotoID = photoID.String
 		}
-		
+
 		details.Participants = append(details.Participants, participant)
 	}
-	
+
 	// Check for errors from iterating over rows
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating participants: %w", err)
@@ -1263,7 +1261,7 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 		WHERE m.conversation_id = ?
 		ORDER BY m.created_at DESC
 	`, conversationID)
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("error fetching messages: %w", err)
 	}
@@ -1277,7 +1275,7 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 		var originalSenderID sql.NullString
 		var originalTimestamp sql.NullTime
 		var contentType sql.NullString
-		
+
 		if err := rows.Scan(
 			&msg.ID,
 			&msg.SenderID,
@@ -1300,16 +1298,16 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 		if icon.Valid {
 			msg.Icon = icon.String
 		}
-		
+
 		if contentType.Valid {
 			msg.ContentType = contentType.String
 		}
-		
+
 		if parentMessageID.Valid {
 			pmID := parentMessageID.String
 			msg.ParentMessageID = &pmID
 		}
-		
+
 		// Handle forwarded message details
 		if msg.IsForwarded && originalSenderID.Valid && originalTimestamp.Valid {
 			var originalSenderName string
@@ -1332,7 +1330,7 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 
 		details.Messages = append(details.Messages, msg)
 	}
-	
+
 	// Check for errors from iterating over rows
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating messages: %w", err)
@@ -1342,7 +1340,7 @@ func (db *appdbimpl) GetConversationDetails(conversationID, userID string) (*Con
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("error committing transaction: %w", err)
 	}
-	
+
 	// Set tx to nil to prevent rollback in defer function
 	tx = nil
 

@@ -54,7 +54,7 @@ func (db *appdbimpl) AddUsersToGroup(groupID, adderID string, usernames []string
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction: %w", err)
 	}
-	
+
 	// Ensure transaction is rolled back if an error occurs
 	defer func() {
 		if tx != nil {
@@ -66,18 +66,18 @@ func (db *appdbimpl) AddUsersToGroup(groupID, adderID string, usernames []string
 
 	// Prepare result
 	result := &GroupAddResult{
-		GroupID:           groupID,
-		GroupName:         currentGroupName,
-		AddedUsers:        []struct {
+		GroupID:   groupID,
+		GroupName: currentGroupName,
+		AddedUsers: []struct {
 			Username string
 			UserID   string
 		}{},
-		FailedUsers:       []string{},
+		FailedUsers: []string{},
 		AddedBy: User{
 			ID:   adderID,
 			Name: adderName,
 		},
-		Timestamp:         time.Now(),
+		Timestamp: time.Now(),
 	}
 
 	// Process each username
@@ -142,7 +142,7 @@ func (db *appdbimpl) AddUsersToGroup(groupID, adderID string, usernames []string
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("error committing transaction: %w", err)
 	}
-	
+
 	// Set tx to nil to prevent rollback in defer function
 	tx = nil
 
@@ -208,12 +208,12 @@ func (db *appdbimpl) LeaveGroup(groupID string, userID string) (username string,
 		if err != nil {
 			return "", false, 0, fmt.Errorf("error deleting empty group from conversations: %w", err)
 		}
-		
+
 		_, err = tx.Exec("DELETE FROM groups WHERE id = ?", groupID)
 		if err != nil {
 			return "", false, 0, fmt.Errorf("error deleting empty group from groups: %w", err)
 		}
-		
+
 		isGroupDeleted = true
 	}
 
@@ -272,10 +272,10 @@ func (db *appdbimpl) IsGroupMember(groupID string, userID string) (bool, error) 
 	// If there's a discrepancy between the tables, log it
 	if isInUserConversations != isInGroupMembers {
 		logrus.WithFields(logrus.Fields{
-			"groupID": groupID,
-			"userID": userID,
+			"groupID":             groupID,
+			"userID":              userID,
 			"inUserConversations": isInUserConversations > 0,
-			"inGroupMembers": isInGroupMembers > 0,
+			"inGroupMembers":      isInGroupMembers > 0,
 		}).Warn("Inconsistency between user_conversations and group_members tables")
 	}
 	// Use user_conversations as the source of truth
@@ -338,10 +338,10 @@ func (db *appdbimpl) SetGroupName(groupID string, userID string, newName string)
 		if err != nil {
 			return "", "", 0, fmt.Errorf("error getting member count: %w", err)
 		}
-		
+
 		// Set tx to nil to prevent rollback in defer function
 		tx = nil
-		
+
 		return oldName, newName, memberCount, nil
 	}
 	// Check if another group with the same name already exists
@@ -437,7 +437,7 @@ func (db *appdbimpl) SetGroupPhoto(groupID string, userID string, fileData []byt
 
 	// Generate a new photo ID using the existing utility function
 	newPhotoID = db.GeneratePhotoID(userID)
- 
+
 	// Store the photo metadata in the database
 	_, err = tx.Exec(`
 		INSERT INTO media_files (id, file_data, mime_type, created_at)

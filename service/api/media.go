@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/julienschmidt/httprouter"
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/gerdalukosiute/WASAText/service/database"
+	"github.com/julienschmidt/httprouter"
 )
 
 // handleGetMedia handles requests to retrieve media files
@@ -26,13 +26,13 @@ func (rt *_router) handleGetMedia(w http.ResponseWriter, r *http.Request, ps htt
 	fileData, mimeType, err := rt.db.GetMediaFile(mediaID)
 	if err != nil {
 		ctx.Logger.WithError(err).WithField("mediaID", mediaID).Error("Failed to get media file")
-		
+
 		// Check if the media file was not found
 		if errors.Is(err, database.ErrMediaNotFound) || strings.Contains(err.Error(), "not found") {
 			sendJSONError(w, "Media file not found", http.StatusNotFound)
 			return
 		}
-		
+
 		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}

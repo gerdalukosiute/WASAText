@@ -32,16 +32,16 @@ func (db *appdbimpl) GetOrCreateUser(name string) (string, error) {
 		// User exists, return the ID
 		return userID, nil
 	}
-	
+
 	// If error is not "no rows", return the error
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("error querying user: %w", err)
 	}
-	
+
 	// User doesn't exist, create a new one with a 12-character identifier
 	for attempts := 0; attempts < 5; attempts++ {
 		userID = GenerateUserID()
-		
+
 		// Check if this ID is already used as a name
 		var count int
 		err = db.c.QueryRow("SELECT COUNT(*) FROM users WHERE name = ?", userID).Scan(&count)
@@ -52,7 +52,7 @@ func (db *appdbimpl) GetOrCreateUser(name string) (string, error) {
 			// This ID is already used as a name, try another one
 			continue
 		}
-		
+
 		// Insert the new user
 		_, err = db.c.Exec("INSERT INTO users (id, name) VALUES (?, ?)", userID, name)
 		if err != nil {
@@ -76,7 +76,7 @@ func (db *appdbimpl) GetOrCreateUser(name string) (string, error) {
 
 		return userID, nil
 	}
-	
+
 	return "", fmt.Errorf("failed to generate a unique user ID after multiple attempts")
 }
 
@@ -97,7 +97,7 @@ func (db *appdbimpl) UpdateUsername(userID string, newName string) error {
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	
+
 	// If a user with this name exists and is not the current user
 	if err == nil && existingUserID != userID {
 		return ErrDuplicateUsername
@@ -197,17 +197,17 @@ func (db *appdbimpl) UpdateUserPhoto(userID string, fileData []byte, contentType
 func GenerateUserID() string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
 	const idLength = 12
-	
+
 	// Initialize random source with current time
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	
+
 	var sb strings.Builder
 	sb.Grow(idLength)
-	
+
 	for i := 0; i < idLength; i++ {
 		sb.WriteByte(charset[r.Intn(len(charset))])
 	}
-	
+
 	return sb.String()
 }
 

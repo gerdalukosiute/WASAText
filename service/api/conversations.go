@@ -2,14 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
-	"unicode/utf8"
 	"unicode"
-	"errors"
-	"io"
+	"unicode/utf8"
 
 	"github.com/gerdalukosiute/WASAText/service/api/reqcontext"
 	"github.com/gerdalukosiute/WASAText/service/database"
@@ -19,53 +19,53 @@ import (
 
 // Updated response structures to match API documentation
 type ConversationDetailsResponse struct {
-    ConversationID string                `json:"conversationId"`
-    Title          string                `json:"title"`
-    IsGroup        bool                  `json:"isGroup"`
-    GroupPhotoID   string                `json:"groupPhotoId,omitempty"`
-    CreatedAt      string                `json:"createdAt"`
-    Participants   []ParticipantResponse `json:"participants"`
-    Messages       []MessageResponse     `json:"messages"`
+	ConversationID string                `json:"conversationId"`
+	Title          string                `json:"title"`
+	IsGroup        bool                  `json:"isGroup"`
+	GroupPhotoID   string                `json:"groupPhotoId,omitempty"`
+	CreatedAt      string                `json:"createdAt"`
+	Participants   []ParticipantResponse `json:"participants"`
+	Messages       []MessageResponse     `json:"messages"`
 }
 
 type ParticipantResponse struct {
-    Username       string `json:"username"`
-    UserID         string `json:"userId"`
-    ProfilePhotoID string `json:"profilePhotoId,omitempty"`
+	Username       string `json:"username"`
+	UserID         string `json:"userId"`
+	ProfilePhotoID string `json:"profilePhotoId,omitempty"`
 }
 
 type MessageResponse struct {
-    MessageID       string             `json:"messageId"`
-    ParentMessageID string             `json:"parentMessageId,omitempty"`
+	MessageID       string             `json:"messageId"`
+	ParentMessageID string             `json:"parentMessageId,omitempty"`
 	IsForwarded     bool               `json:"isForwarded,omitempty"`
-    Sender          SenderResponse     `json:"sender"`
-    Type            string             `json:"type"`
-    Content         string             `json:"content"`
-    Timestamp       string             `json:"timestamp"`
-    Status          string             `json:"status"`
-    Reactions       []ReactionResponse `json:"reactions,omitempty"`
+	Sender          SenderResponse     `json:"sender"`
+	Type            string             `json:"type"`
+	Content         string             `json:"content"`
+	Timestamp       string             `json:"timestamp"`
+	Status          string             `json:"status"`
+	Reactions       []ReactionResponse `json:"reactions,omitempty"`
 }
 
 type SenderResponse struct {
-    Username string `json:"username"`
-    UserID   string `json:"userId"`
+	Username string `json:"username"`
+	UserID   string `json:"userId"`
 }
 
 type ReactionResponse struct {
 	InteractionID string `json:"interactionId"`
-    Username    string `json:"username"`
-    Interaction string `json:"interaction"`
-    Content     string `json:"content"`
-    Timestamp   string `json:"timestamp"`
+	Username      string `json:"username"`
+	Interaction   string `json:"interaction"`
+	Content       string `json:"content"`
+	Timestamp     string `json:"timestamp"`
 }
 
 // ConversationResponse represents the API response for a conversation summary (Updated)
 type ConversationResponse struct {
-	ConversationID string `json:"conversationId"`
-	Title          string `json:"title"`
-	CreatedAt      string `json:"createdAt"`
+	ConversationID string  `json:"conversationId"`
+	Title          string  `json:"title"`
+	CreatedAt      string  `json:"createdAt"`
 	ProfilePhotoID *string `json:"profilePhotoId,omitempty"`
-	IsGroup        bool   `json:"isGroup"`
+	IsGroup        bool    `json:"isGroup"`
 	LastMessage    struct {
 		Type      string `json:"type"`
 		Content   string `json:"content"`
@@ -111,9 +111,9 @@ func (rt *_router) handleGetConversations(w http.ResponseWriter, r *http.Request
 		}
 
 		conversationResponses[i] = ConversationResponse{
-			ConversationID: conv.ID,                       
+			ConversationID: conv.ID,
 			Title:          conv.Title,
-			CreatedAt:      conv.CreatedAt.Format(time.RFC3339), 
+			CreatedAt:      conv.CreatedAt.Format(time.RFC3339),
 			ProfilePhotoID: conv.ProfilePhoto,
 			IsGroup:        conv.IsGroup,
 			LastMessage:    lastMessage,
@@ -280,8 +280,8 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 	if strings.HasPrefix(contentType, "application/json") {
 		// Handle JSON request for text messages
 		var req struct {
-			Type           string  `json:"type"`
-			Content        string  `json:"content"`
+			Type            string  `json:"type"`
+			Content         string  `json:"content"`
 			ParentMessageID *string `json:"parentMessageId,omitempty"` // Optional field for reply
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -359,7 +359,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 
 		// Detect content type
 		contentTypeValue = http.DetectContentType(photo)
-		
+
 		// Store the photo in the media_files table
 		mediaID, err := rt.db.StoreMediaFile(photo, contentTypeValue)
 		if err != nil {
@@ -367,7 +367,7 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 			sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 			return
 		}
-		
+
 		messageType = "photo"
 		// Store the URL to the media in the content field
 		content = fmt.Sprintf("/media/%s", mediaID)
@@ -409,10 +409,10 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 
 	// Create the response according to the API documentation
 	response := struct {
-		MessageID      string `json:"messageId"`
-		ConversationID string `json:"conversationId"`
+		MessageID       string  `json:"messageId"`
+		ConversationID  string  `json:"conversationId"`
 		ParentMessageID *string `json:"parentMessageId,omitempty"`
-		Sender         struct {
+		Sender          struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
 		} `json:"sender"`
@@ -422,8 +422,8 @@ func (rt *_router) handleSendMessage(w http.ResponseWriter, r *http.Request, ps 
 		Timestamp   string `json:"timestamp"`
 		Status      string `json:"status"`
 	}{
-		MessageID:      messageID,
-		ConversationID: conversationID,
+		MessageID:       messageID,
+		ConversationID:  conversationID,
 		ParentMessageID: parentMessageID,
 		Sender: struct {
 			Username string `json:"username"`
@@ -454,9 +454,9 @@ type forwardMessageRequest struct {
 }
 
 type forwardMessageResponse struct {
-	NewMessageID         string    `json:"newMessageId"`
-	OriginalMessageID    string    `json:"originalMessageId"`
-	TargetConversationID string    `json:"targetConversationId"`
+	NewMessageID         string `json:"newMessageId"`
+	OriginalMessageID    string `json:"originalMessageId"`
+	TargetConversationID string `json:"targetConversationId"`
 	OriginalSender       struct {
 		Username string `json:"username"`
 		UserID   string `json:"userId"`
@@ -465,16 +465,16 @@ type forwardMessageResponse struct {
 		Username string `json:"username"`
 		UserID   string `json:"userId"`
 	} `json:"forwardedBy"`
-	Content            string    `json:"content"`
-	Type               string    `json:"type"`
-	OriginalTimestamp  string    `json:"originalTimestamp"`
-	ForwardedTimestamp string    `json:"forwardedTimestamp"`
+	Content            string `json:"content"`
+	Type               string `json:"type"`
+	OriginalTimestamp  string `json:"originalTimestamp"`
+	ForwardedTimestamp string `json:"forwardedTimestamp"`
 }
 
 // Handles message forwarding
 func (rt *_router) handleForwardMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params, ctx reqcontext.RequestContext, userID string) {
 	messageID := ps.ByName("messageId")
-	
+
 	ctx.Logger.WithFields(logrus.Fields{
 		"userID":    userID,
 		"messageID": messageID,
@@ -499,7 +499,7 @@ func (rt *_router) handleForwardMessage(w http.ResponseWriter, r *http.Request, 
 	if err != nil {
 		var statusCode int
 		var errorMessage string
-		
+
 		if errors.Is(err, database.ErrMessageNotFound) {
 			statusCode = http.StatusNotFound
 			errorMessage = "Original message not found"
@@ -513,7 +513,7 @@ func (rt *_router) handleForwardMessage(w http.ResponseWriter, r *http.Request, 
 			statusCode = http.StatusInternalServerError
 			errorMessage = ErrInternalServerMsg
 		}
-		
+
 		ctx.Logger.WithError(err).Error(errorMessage)
 		sendJSONError(w, errorMessage, statusCode)
 		return
@@ -596,7 +596,7 @@ func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps h
 	comment, err := rt.db.AddComment(messageID, userID, req.Content)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to add emoji reaction")
-		
+
 		if errors.Is(err, database.ErrUnauthorized) {
 			sendJSONError(w, "Unauthorized to add reaction to this message", http.StatusUnauthorized)
 			return
@@ -619,9 +619,9 @@ func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps h
 
 	ctx.Logger.WithFields(logrus.Fields{
 		"interactionId": comment.ID,
-		"messageID": comment.MessageID,
-		"userID":    comment.UserID,
-		"content":   comment.Content,
+		"messageID":     comment.MessageID,
+		"userID":        comment.UserID,
+		"content":       comment.Content,
 	}).Info("Emoji reaction added successfully")
 
 	// Create the response according to the documentation
@@ -660,19 +660,19 @@ func (rt *_router) handleAddComment(w http.ResponseWriter, r *http.Request, ps h
 // isValidEmoji checks if the provided string is a valid emoji
 func isValidEmoji(s string) bool {
 	// Simple validation for common emoji patterns
-	
+
 	// Check if the string is too long to be an emoji
 	if utf8.RuneCountInString(s) > 8 {
 		return false
 	}
-	
+
 	// Check if the string contains any ASCII characters (which are not emojis)
 	for _, r := range s {
 		if r < 128 && !unicode.IsSpace(r) {
 			return false
 		}
 	}
-	
+
 	// Check if the string contains at least one emoji-like character
 	hasEmojiChar := false
 	for _, r := range s {
@@ -686,7 +686,7 @@ func isValidEmoji(s string) bool {
 			break
 		}
 	}
-	
+
 	return hasEmojiChar
 }
 
@@ -705,10 +705,10 @@ func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, p
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to delete emoji reaction")
 		w.Header().Set("Content-Type", "application/json")
-		
+
 		var statusCode int
 		var errorMessage string
-		
+
 		if errors.Is(err, database.ErrMessageNotFound) {
 			statusCode = http.StatusNotFound
 			errorMessage = "Item not found"
@@ -719,7 +719,7 @@ func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, p
 			statusCode = http.StatusInternalServerError
 			errorMessage = ErrInternalServerMsg
 		}
-		
+
 		w.WriteHeader(statusCode)
 		if encodeErr := json.NewEncoder(w).Encode(map[string]string{"error": errorMessage}); encodeErr != nil {
 			ctx.Logger.WithError(encodeErr).Error("Failed to encode error response")
@@ -754,15 +754,15 @@ func (rt *_router) handleDeleteComment(w http.ResponseWriter, r *http.Request, p
 
 	// Create response according to the API documentation
 	response := struct {
-		MessageID    string `json:"messageId"`
+		MessageID     string `json:"messageId"`
 		InteractionID string `json:"interactionId"`
-		User         struct {
+		User          struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
 		} `json:"user"`
 		RemovedAt string `json:"removedAt"`
 	}{
-		MessageID:    messageID,
+		MessageID:     messageID,
 		InteractionID: commentID,
 		User: struct {
 			Username string `json:"username"`
@@ -819,10 +819,10 @@ func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Requ
 	statusUpdate, err := rt.db.UpdateMessageStatus(messageID, userID, req.Status)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to update message status")
-		
+
 		var statusCode int
 		var errorMessage string
-		
+
 		if errors.Is(err, database.ErrMessageNotFound) {
 			statusCode = http.StatusNotFound
 			errorMessage = "Message not found"
@@ -833,21 +833,21 @@ func (rt *_router) handleUpdateMessageStatus(w http.ResponseWriter, r *http.Requ
 			statusCode = http.StatusInternalServerError
 			errorMessage = ErrInternalServerMsg
 		}
-		
+
 		sendJSONError(w, errorMessage, statusCode)
 		return
 	}
 
 	// Create the response according to the API documentation
 	response := struct {
-		MessageID      string    `json:"messageId"`
-		Status         string    `json:"status"`
-		UpdatedBy      struct {
+		MessageID string `json:"messageId"`
+		Status    string `json:"status"`
+		UpdatedBy struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
 		} `json:"updatedBy"`
-		UpdatedAt      string    `json:"updatedAt"`
-		ConversationID string    `json:"conversationId"`
+		UpdatedAt      string `json:"updatedAt"`
+		ConversationID string `json:"conversationId"`
 	}{
 		MessageID: statusUpdate.MessageID,
 		Status:    statusUpdate.Status,
@@ -884,7 +884,7 @@ func (rt *_router) handleDeleteMessage(w http.ResponseWriter, r *http.Request, p
 	if err != nil {
 		var statusCode int
 		var errorMessage string
-		
+
 		if errors.Is(err, database.ErrMessageNotFound) {
 			statusCode = http.StatusNotFound
 			errorMessage = "Message not found"
@@ -896,7 +896,7 @@ func (rt *_router) handleDeleteMessage(w http.ResponseWriter, r *http.Request, p
 			errorMessage = ErrInternalServerMsg
 			ctx.Logger.WithError(err).Error("Failed to delete message")
 		}
-		
+
 		sendJSONError(w, errorMessage, statusCode)
 		return
 	}
@@ -911,13 +911,13 @@ func (rt *_router) handleDeleteMessage(w http.ResponseWriter, r *http.Request, p
 
 	// Create the response according to the API documentation
 	response := struct {
-		MessageID      string    `json:"messageId"`
-		User           struct {
+		MessageID string `json:"messageId"`
+		User      struct {
 			Username string `json:"username"`
 			UserID   string `json:"userId"`
 		} `json:"user"`
-		DeletedAt      string    `json:"deletedAt"`
-		ConversationID string    `json:"conversationId"`
+		DeletedAt      string `json:"deletedAt"`
+		ConversationID string `json:"conversationId"`
 	}{
 		MessageID: deletedMessage.ID,
 		User: struct {
@@ -950,14 +950,14 @@ func convertMessages(dbMessages []database.Message) []MessageResponse {
 				Username: m.Sender,
 				UserID:   m.SenderID,
 			},
-			Type:      m.Type,
-			Content:   m.Content,
-			Timestamp: m.Timestamp.Format(time.RFC3339),
-			Status:    m.Status,
-			Reactions: convertReactions(m.Comments),
+			Type:        m.Type,
+			Content:     m.Content,
+			Timestamp:   m.Timestamp.Format(time.RFC3339),
+			Status:      m.Status,
+			Reactions:   convertReactions(m.Comments),
 			IsForwarded: m.IsForwarded,
 		}
-		
+
 		// Add parent message ID if present
 		if m.ParentMessageID != nil {
 			messages[i].ParentMessageID = *m.ParentMessageID
@@ -972,10 +972,10 @@ func convertReactions(dbComments []database.Comment) []ReactionResponse {
 	for i, c := range dbComments {
 		reactions[i] = ReactionResponse{
 			InteractionID: c.ID,
-			Username:    c.Username,
-			Interaction: "reaction",
-			Content:     c.Content,
-			Timestamp:   c.Timestamp.Format(time.RFC3339),
+			Username:      c.Username,
+			Interaction:   "reaction",
+			Content:       c.Content,
+			Timestamp:     c.Timestamp.Format(time.RFC3339),
 		}
 	}
 	return reactions
@@ -1008,12 +1008,12 @@ func (rt *_router) handleGetConversationDetails(w http.ResponseWriter, r *http.R
 	conversation, err := rt.db.GetConversationDetails(conversationID, userID)
 	if err != nil {
 		ctx.Logger.WithError(err).Error("Failed to get conversation details")
-		
+
 		if errors.Is(err, database.ErrConversationNotFound) {
 			sendJSONError(w, "Conversation not found", http.StatusNotFound)
 			return
 		}
-		
+
 		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)
 		return
 	}
@@ -1027,7 +1027,7 @@ func (rt *_router) handleGetConversationDetails(w http.ResponseWriter, r *http.R
 		Participants:   convertParticipants(conversation.Participants),
 		Messages:       convertMessages(conversation.Messages),
 	}
-	
+
 	// Add group photo ID if present and it's a group
 	if conversation.IsGroup && conversation.ProfilePhoto != "" {
 		response.GroupPhotoID = conversation.ProfilePhoto

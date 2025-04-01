@@ -68,7 +68,7 @@ func (rt *_router) handleUpdateUsername(w http.ResponseWriter, r *http.Request, 
 			sendJSONError(w, "Username already taken", http.StatusBadRequest)
 			return
 		}
-		
+
 		// Default case for other errors
 		ctx.Logger.WithError(err).Error("Failed to update username")
 		sendJSONError(w, ErrInternalServerMsg, http.StatusInternalServerError)

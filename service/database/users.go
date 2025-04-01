@@ -13,7 +13,7 @@ func (db *appdbimpl) SearchUsers(query string) ([]User, int, error) {
 	var err error
 	var countQuery string
 	var searchQuery string
-	
+
 	// If query is empty or just whitespace, return all users
 	if strings.TrimSpace(query) == "" {
 		countQuery = "SELECT COUNT(*) FROM users"
@@ -22,7 +22,7 @@ func (db *appdbimpl) SearchUsers(query string) ([]User, int, error) {
 		countQuery = "SELECT COUNT(*) FROM users WHERE name LIKE ?"
 		searchQuery = "SELECT id, name, photo_id FROM users WHERE name LIKE ? LIMIT 1000"
 	}
-	
+
 	// Get total count
 	var total int
 	var countErr error
@@ -34,14 +34,14 @@ func (db *appdbimpl) SearchUsers(query string) ([]User, int, error) {
 	if countErr != nil {
 		return nil, 0, fmt.Errorf("error counting users: %w", countErr)
 	}
-	
+
 	// Execute search query
 	if strings.TrimSpace(query) == "" {
 		rows, err = db.c.Query(searchQuery)
 	} else {
 		rows, err = db.c.Query(searchQuery, "%"+query+"%")
 	}
-	
+
 	if err != nil {
 		return nil, 0, fmt.Errorf("error searching users: %w", err)
 	}

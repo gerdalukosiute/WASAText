@@ -16,10 +16,10 @@ func (rt *_router) handleSearchUsers(w http.ResponseWriter, r *http.Request, ps 
 
 	// Get the search query from the URL parameters
 	query := r.URL.Query().Get("q")
-	
+
 	// Trim whitespace from the query
 	trimmedQuery := strings.TrimSpace(query)
-	
+
 	// Validate query format if not empty after trimming
 	if trimmedQuery != "" {
 		// Check if query matches pattern: alphanumeric, underscore, hyphen, max 16 chars
@@ -37,7 +37,7 @@ func (rt *_router) handleSearchUsers(w http.ResponseWriter, r *http.Request, ps 
 				}
 			}
 		}
-		
+
 		if !validQuery {
 			sendJSONError(w, "Invalid query format. Query must be alphanumeric with underscore or hyphen, max 16 characters", http.StatusBadRequest)
 			return
@@ -68,7 +68,7 @@ func (rt *_router) handleSearchUsers(w http.ResponseWriter, r *http.Request, ps 
 		UserID         string `json:"userId"`
 		ProfilePhotoID string `json:"profilePhotoId,omitempty"`
 	}
-	
+
 	userInfos := make([]UserInfo, len(users))
 	for i, user := range users {
 		// Map the database fields to the API response fields
