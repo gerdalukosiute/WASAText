@@ -234,7 +234,7 @@ const handleReply = async () => {
         alert('Please enter a message to reply with.');
         return;
       }
-      
+     
       console.log('Reply data:', {
         content: replyMessage.value,
         type: 'text',
@@ -253,21 +253,21 @@ const handleReply = async () => {
       });
 
       console.log('Message replied:', response.data);
-      
+     
       emit('messageReplied', response.data);
     } else if (replyType.value === 'photo') {
       if (!selectedFile.value) {
         alert('Please select an image to reply with.');
         return;
       }
-      
+     
       const formData = new FormData();
       formData.append('type', 'photo');
       formData.append('photo', selectedFile.value);
       formData.append('parentMessageId', props.messageId);
-      
+     
       console.log('Sending photo reply with parent message ID:', props.messageId);
-      
+     
       const response = await api.post(
         `/conversations/${props.conversationId}/messages`,
         formData,
@@ -278,9 +278,9 @@ const handleReply = async () => {
           }
         }
       );
-      
+     
       console.log('Photo reply response:', response.data);
-      
+     
       emit('messageReplied', response.data);
     }
     
@@ -317,7 +317,7 @@ const showDropdown = () => {
     event.stopPropagation();
   }
   showPopup.value = true;
-}; 
+};
 
 const hideDropdown = () => {
   showPopup.value = false;
@@ -347,22 +347,30 @@ defineExpose({
 
 <template>
   <div>
-    <div 
+    <div
       @click="handleClick"
     >
       <slot></slot>
     </div>
-    <div v-if="showPopup" class="popup" ref="popupRef" @click.stop>
-      <button @click="openForwardDialog" class="popup-button forward-button">
-        <i class="fa-regular fa-share-from-square"></i> Forward
-      </button>
-      <button v-if="isCurrentUserSender" @click="handleDelete" class="popup-button delete-button">
-        <i class="fa-regular fa-trash-can"></i> Delete
-      </button>
-      <button @click="openReplyDialog" class="popup-button reply-button">
-        <i class="fa-regular fa-square-caret-right"></i> Reply
-      </button>
-    </div>
+    <Teleport to="body">
+      <div v-if="showPopup" class="modal-overlay" @click.self="hideDropdown">
+        <div class="modal-popup" ref="popupRef" @click.stop>
+          <div class="modal-header">
+            <h3>Message Options</h3>
+            <button @click="hideDropdown" class="close-btn">&times;</button>
+          </div>
+            <button @click="openForwardDialog" class="popup-button forward-button">
+              <i class="fa-regular fa-share-from-square"></i> Forward
+            </button>
+            <button v-if="isCurrentUserSender" @click="handleDelete" class="popup-button delete-button">
+              <i class="fa-regular fa-trash-can"></i> Delete
+            </button>
+            <button @click="openReplyDialog" class="popup-button reply-button">
+              <i class="fa-regular fa-square-caret-right"></i> Reply
+            </button>
+        </div>
+      </div>
+    </Teleport> 
     <div v-if="showForwardDialog" class="modal">
       <div class="modal-content">
         <div class="modal-header">
@@ -374,9 +382,9 @@ defineExpose({
           <div v-else-if="error" class="error-message">{{ error }}</div>
           <div v-else class="form-group">
             <label for="conversation-select">Select a conversation</label>
-            <select 
+            <select
               id="conversation-select"
-              v-model="selectedConversation" 
+              v-model="selectedConversation"
               class="form-input"
             >
               <option value="">Choose a conversation</option>
@@ -387,9 +395,9 @@ defineExpose({
           </div>
           <div class="form-actions">
             <button @click="closeForwardDialog" class="cancel-btn">Cancel</button>
-            <button 
-              @click="handleForward" 
-              class="create-btn" 
+            <button
+              @click="handleForward"
+              class="create-btn"
               :disabled="!selectedConversation"
             >
               Forward
@@ -684,4 +692,90 @@ defineExpose({
   display: none;
 }
 
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.modal-popup {
+  background-color: white;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 300px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #666;
+}
+
+.modal-content {
+  padding: 16px;
+}
+
+.modal-popup .popup-button {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 8px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  background-color: #f5f5f5;
+  transition: background-color 0.2s;
+  font-size: 1rem;
+}
+
+.modal-popup .popup-button:last-child {
+  margin-bottom: 0;
+}
+
+.modal-popup .popup-button:hover {
+  background-color: #e8e8e8;
+}
+
+.modal-popup .forward-button, 
+.modal-popup .reply-button {
+  color: #474747;
+}
+
+.modal-popup .delete-button {
+  color: #e53935;
+}
+
+.modal-popup .popup-button i {
+  margin-right: 10px;
+  width: 20px;
+  text-align: center;
+}
 </style>
