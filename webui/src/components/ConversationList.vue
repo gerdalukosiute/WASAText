@@ -7,6 +7,7 @@ import AddUserToGroupForm from '@/components/AddUserToGroupForm.vue';
 import SetGroupNameForm from '@/components/SetGroupNameForm.vue'
 import LeaveGroupModal from '@/components/LeaveGroupModal.vue';
 import MediaImage from '@/components/MediaImage.vue';
+import DisplayMembersForm from '@/components/DisplayMembersForm.vue';
 import api from '@/services/axios.js';
 
 const conversations = ref([]);
@@ -21,6 +22,7 @@ const showAddUserToGroupForm = ref(false);
 const isSetGroupNameFormOpen = ref(false); 
 const showLeaveGroupConfirmation = ref(false);
 const photoUrl = ref('');
+const showDisplayMembersForm = ref(false);
 
 const fetchConversations = async () => {
   console.log('fetching conversations');
@@ -340,6 +342,21 @@ const handleMessageSent = async () => {
   conversations.value = [...conversations.value];
 };
 
+const openDisplayMembersForm = (groupId) => {
+  if (event) {
+    event.stopPropagation();
+  }
+  
+  selectedGroupId.value = groupId;
+  showDisplayMembersForm.value = true;
+  showDropdown.value[groupId] = false;
+};
+
+const closeDisplayMembersForm = () => {
+  showDisplayMembersForm.value = false;
+  selectedGroupId.value = null;
+};
+
 onMounted(() => {
   fetchConversations();
 });
@@ -391,6 +408,9 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
               <button @click.stop="openAddUserToGroupForm(conversation.id)" class="dropdown-item">
                 <i class="fa-solid fa-plus"></i> Add a new member
               </button>
+              <button @click.stop="openDisplayMembersForm(conversation.id)" class="dropdown-item">
+                <i class="fa-regular fa-address-book"></i> View members
+              </button>
               <button @click.stop="confirmLeaveGroup(conversation.id)" class="dropdown-item text-red-500">
                 <i class="fa-regular fa-square-minus"></i> Leave group
               </button>
@@ -436,6 +456,13 @@ defineExpose({ addNewConversation, fetchConversationDetails, fetchConversations 
       :current-group-name="getGroupName(selectedGroupId)"
       @close="closeSetGroupNameForm"
       @name-updated="handleGroupNameUpdated"
+      @click.stop
+    />
+    <DisplayMembersForm
+      v-if="showDisplayMembersForm"
+      :is-open="showDisplayMembersForm"
+      :group-id="selectedGroupId"
+      @close="closeDisplayMembersForm"
       @click.stop
     />
     <LeaveGroupModal
