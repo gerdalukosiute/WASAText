@@ -42,6 +42,10 @@ const replyMessage = ref('');
 const replyType = ref('text');
 const selectedFile = ref(null);
 const previewUrl = ref('');
+const showUsersList = ref(true); 
+const selectedUser = ref(''); 
+const users = ref([]); 
+
 
 const currentUserId = ref(localStorage.getItem('userId'));
 const isCurrentUserSender = computed(() => {
@@ -60,12 +64,51 @@ const handleClick = () => {
 const openForwardDialog = () => {
   showPopup.value = false;
   showForwardDialog.value = true;
-  fetchConversations();
+  fetchUsers(); // ex fetchConversations()
 };
 
 const closeForwardDialog = () => {
   showForwardDialog.value = false;
   selectedConversation.value = '';
+  selectedUser.value = '';
+};
+
+const fetchUsers = async () => {
+  loading.value = true;
+  error.value = null;
+  
+  const userId = localStorage.getItem('userId');
+  if (!userId) {
+    error.value = 'User not authenticated. Please log in again.';
+    loading.value = false;
+    return;
+  }
+
+  try {
+    const response = await api.get(`/users`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-User-ID': userId
+      }
+    });
+
+    if (response.data && Array.isArray(response.data.users)) {
+      // Filter out the current user
+      users.value = response.data.users.filter(user => user.userId !== userId);
+    } else {
+      error.value = 'Invalid response format. Expected users array.';
+    }
+  } catch (err) {
+    console.error('Error fetching users:', err);
+    if (err.response && err.response.status === 401) {
+      error.value = 'Authentication failed. Please log in again.';
+    } else {
+      error.value = 'Failed to fetch users. Please try again.';
+    }
+  } finally {
+    loading.value = false;
+  }
 };
 
 const fetchConversations = async () => {
@@ -112,6 +155,77 @@ const fetchConversations = async () => {
   }
 };
 
+const createConversationAndForward = async (user) => {
+ try {
+   const userId = localStorage.getItem('userId');
+   if (!userId) {
+     throw new Error('User not authenticated');
+   }
+
+   const createResponse = await api.post('/conversations', {
+     recipients: [user.username],
+     isGroup: false
+   }, {
+     headers: {
+       'Content-Type': 'application/json',
+       'X-User-ID': userId
+     }
+   });
+
+   console.log('Conversation creation response:', createResponse.data);
+
+   let targetConversation = null;
+  
+   if (createResponse.data && Array.isArray(createResponse.data.conversations)) {
+     // Find the conversation where the title matches the username
+     targetConversation = createResponse.data.conversations.find(
+       conv => conv.title === user.username && !conv.isGroup
+     );
+   }
+  
+   if (!targetConversation) {
+     throw new Error('Could not find the conversation with the selected user');
+   }
+
+   const forwardResponse = await api.post(`/messages/${props.messageId}/forward`, {
+     originalMessageId: props.messageId,
+     targetConversationId: targetConversation.conversationId
+   }, {
+     headers: {
+       'Content-Type': 'application/json',
+       'X-User-ID': userId
+     }
+   });
+
+
+   console.log('Message forwarded response:', forwardResponse.data);
+  
+   emit('messageForwarded', {
+     messageId: props.messageId,
+     forwardedMessage: {
+       id: forwardResponse.data.newMessageId || forwardResponse.data.messageId,
+       originalMessageId: forwardResponse.data.originalMessageId,
+       targetConversationId: targetConversation.conversationId,
+       originalSender: forwardResponse.data.originalSender,
+       forwardedBy: forwardResponse.data.forwardedBy,
+       content: forwardResponse.data.content,
+       type: forwardResponse.data.type,
+       originalTimestamp: forwardResponse.data.originalTimestamp,
+       forwardedTimestamp: forwardResponse.data.forwardedTimestamp || forwardResponse.data.timestamp
+     }
+   });
+  
+   closeForwardDialog();
+ } catch (error) {
+   console.error('Error creating conversation and forwarding message:', error);
+    if (error.response && error.response.data && error.response.data.error) {
+     alert(`Failed to forward message: ${error.response.data.error}`);
+   } else {
+     alert('Failed to forward message. Please try again.');
+   }
+ }
+};
+
 const handleForward = async () => {
   try {
     const userId = localStorage.getItem('userId');
@@ -119,40 +233,53 @@ const handleForward = async () => {
       throw new Error('User not authenticated');
     }
 
-    if (!selectedConversation.value) {
-      alert('Please select a conversation to forward the message to.');
-      return;
+    if (showUsersList.value) {
+      if (!selectedUser.value) {
+        alert('Please select a user to forward the message to.');
+        return;
+      }
+      
+      const user = users.value.find(u => u.userId === selectedUser.value);
+      if (!user) {
+        throw new Error('Selected user not found');
+      }
+      
+      await createConversationAndForward(user);
+    } else {
+      if (!selectedConversation.value) {
+        alert('Please select a conversation to forward the message to.');
+        return;
+      }
+
+      const response = await api.post(`/messages/${props.messageId}/forward`, {
+        originalMessageId: props.messageId,
+        targetConversationId: selectedConversation.value
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId
+        }
+      });
+
+      console.log('Message forwarded:', response.data);
+      
+      emit('messageForwarded', {
+        messageId: props.messageId,
+        forwardedMessage: {
+          id: response.data.newMessageId,
+          originalMessageId: response.data.originalMessageId,
+          targetConversationId: response.data.targetConversationId,
+          originalSender: response.data.originalSender,
+          forwardedBy: response.data.forwardedBy,
+          content: response.data.content,
+          type: response.data.type,
+          originalTimestamp: response.data.originalTimestamp,
+          forwardedTimestamp: response.data.forwardedTimestamp
+        }
+      });
+      
+      closeForwardDialog();
     }
-
-    const response = await api.post(`/messages/${props.messageId}/forward`, {
-      originalMessageId: props.messageId,
-      targetConversationId: selectedConversation.value
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-ID': userId
-      }
-    });
-
-    console.log('Message forwarded:', response.data);
-    
-    // Emit the forwarded message data to the parent component
-    emit('messageForwarded', {
-      messageId: props.messageId,
-      forwardedMessage: {
-        id: response.data.newMessageId,
-        originalMessageId: response.data.originalMessageId,
-        targetConversationId: response.data.targetConversationId,
-        originalSender: response.data.originalSender,
-        forwardedBy: response.data.forwardedBy,
-        content: response.data.content,
-        type: response.data.type,
-        originalTimestamp: response.data.originalTimestamp,
-        forwardedTimestamp: response.data.forwardedTimestamp
-      }
-    });
-    
-    closeForwardDialog();
   } catch (error) {
     console.error('Error forwarding message:', error);
     if (error.response && error.response.data && error.response.data.error) {
@@ -160,6 +287,17 @@ const handleForward = async () => {
     } else {
       alert('Failed to forward message. Please try again.');
     }
+  }
+};
+
+const toggleForwardView = () => {
+  showUsersList.value = !showUsersList.value;
+  if (showUsersList.value) {
+    fetchUsers();
+    selectedConversation.value = '';
+  } else {
+    fetchConversations();
+    selectedUser.value = '';
   }
 };
 
@@ -377,9 +515,42 @@ defineExpose({
           <h2>Forward Message</h2>
           <button @click="closeForwardDialog" class="close">&times;</button>
         </div>
+        <div class="forward-toggle">
+          <button 
+            @click="toggleForwardView" 
+            :class="{'active': showUsersList}"
+            class="toggle-btn"
+          >
+            Forward to User
+          </button>
+          <button 
+            @click="toggleForwardView" 
+            :class="{'active': !showUsersList}"
+            class="toggle-btn"
+          >
+            Forward to Conversation
+          </button>
+        </div>
         <div class="modal-body">
           <div v-if="loading" class="loading">Loading conversations...</div>
           <div v-else-if="error" class="error-message">{{ error }}</div>
+          <!-- Users List View -->
+          <div v-else-if="showUsersList" class="form-group">
+            <label for="user-select">Select a user</label>
+            <div class="user-list">
+              <div 
+                v-for="user in users" 
+                :key="user.userId" 
+                class="user-item"
+                :class="{'selected': selectedUser === user.userId}"
+                @click="selectedUser = user.userId"
+              >
+                <span>{{ user.username }}</span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Conversations List View -->
           <div v-else class="form-group">
             <label for="conversation-select">Select a conversation</label>
             <select
@@ -393,12 +564,13 @@ defineExpose({
               </option>
             </select>
           </div>
+          
           <div class="form-actions">
             <button @click="closeForwardDialog" class="cancel-btn">Cancel</button>
             <button
               @click="handleForward"
               class="create-btn"
-              :disabled="!selectedConversation"
+              :disabled="(showUsersList && !selectedUser) || (!showUsersList && !selectedConversation)"
             >
               Forward
             </button>
@@ -777,5 +949,54 @@ defineExpose({
   margin-right: 10px;
   width: 20px;
   text-align: center;
+}
+.forward-toggle {
+  display: flex;
+  border-bottom: 1px solid #eee;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.toggle-btn.active {
+  color: #4a90e2;
+  font-weight: 600;
+  border-bottom: 2px solid #4a90e2;
+}
+
+.user-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+
+.user-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.user-item:last-child {
+  border-bottom: none;
+}
+
+.user-item:hover {
+  background-color: #f5f5f5;
+}
+
+.user-item.selected {
+  background-color: #e6f2ff;
 }
 </style>

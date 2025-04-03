@@ -1,28 +1,48 @@
-# WASAText
+<div align="center">
+  <h1>📬 WASAText</h1>
+  <p><strong>A lightweight chat platform built with Vue.js & Go</strong></p>
+  <p>
+    <img src="https://img.shields.io/badge/frontend-Vue.js-42b883?logo=vue.js" />
+    <img src="https://img.shields.io/badge/backend-Golang-00add8?logo=go" />
+    <img src="https://img.shields.io/badge/build-Docker-blue?logo=docker" />
+    <img src="https://img.shields.io/badge/database-SQLite-lightgrey?logo=sqlite" />
+  </p>
+</div>
 
-WASAText is a project developed for a Web and Software Architecture course. It provides a platform for users to engage in and manage conversations (either alone or in groups) and share photos.
+---
 
-## Backend stack
-- Go (Golang) for server-side logic
-- SQLite database
-- RESTful API design
+## 🌐 Overview
 
-## API Endpoints
+**WASAText** is a messaging platform created for a Web & Software Architecture course. It enables users to engage in **1-on-1** or **group conversations**, **share photos**, **react with emojis**, and manage messages with options to **reply**, **forward**, and **delete**.
 
-- `POST /session`: User login
-- `PUT /user` : Updating username
-- `GET /users` : Search for users or get all
-- `PUT /user/{userId}`: Update user profile pic
-- `GET /conversations`: Get user's conversations
-- `POST /conversations`: Start a new conversation
-- `GET /conversations/{conversationId}`: Get conversation details
-- `POST /conversations/{conversationId}/messages`: Send a message
-- `GET /conversations/{conversationId}/messages`: Get messages in a conversation
-- `POST /messages/{messageId}/forward`: Forward a message
-- `POST /messages/{messageId}/comments`: Add a comment to a message
-- `DELETE /messages/{messageId}/comments/{commentId}`: Delete a comment
-- `GET /groups`: Get groups of a user
-- `POST /groups/{groupId}`: Add a user to group/create one
-- `DELETE /groups/{groupId}`: Leave a group (it is deleted if it has no more members)
-- `PUT /groups/{groupId}`: Set the group name
-- `PATCH /groups/{groupId}`: Set the group photo
+---
+
+## 🧰 Tech Stack
+
+| Layer         | Stack                         |
+|---------------|-------------------------------|
+| **Frontend**  | Vue, Vite, FontAwesome       |
+| **Backend**   | Go (Golang), SQLite, REST API  |
+| **Deployment**| Docker, NGINX                  |
+
+---
+
+## 🚀 Features
+
+- 👤 User login and profile customization
+- 💬 Modern chat UI with support for sending messages and media
+- 🧑‍🤝‍🧑 Group chat support
+- 🔁 Forward, 💬 reply, 🗑️ delete messages
+- 🖼️ Photo sharing
+- 😊 Emoji reactions
+- 📦 Fully containerized with Docker
+
+---
+
+## 🛠️ Getting Started
+
+### 🔨 Build & Run with Docker
+
+```bash
+docker-compose up 
+docker-compose down
